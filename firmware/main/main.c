@@ -53,6 +53,10 @@ static int now_broadcast(gl_transport_t *t, const uint8_t *payload, size_t len)
 }
 
 /* ---- console: UART0, the USB cable ---- */
+
+/* console output sink (declared before the console task that uses it) */
+void uart_print(void *ctx, const char *text);
+
 static void uart_console_task(void *arg)
 {
     uint8_t line[1400];
@@ -114,7 +118,7 @@ void app_main(void)
     bus.ctx = &bus;
     uint8_t mac[6];
     esp_read_mac(mac, ESP_MAC_WIFI_STA);
-    gl_init(&node, &bus, mac, ELP_CHIP_CLASSIC, 2, 290, 4);
+    glados_init(&node, &bus, mac, ELP_CHIP_CLASSIC, 2, 290, 4, 0, 0);
     uart_print(NULL, "ESPlab node up");
 
     xTaskCreate(uart_console_task, "console", 4096, NULL, 5, NULL);

@@ -78,10 +78,10 @@ static void print_nodes(gl_node_t *g, gl_print_fn out, void *ctx)
                             : (uint32_t)n->ram_kb_x16 * 16 + n->ram_kb_rem;
         uint32_t fl = self ? g->flash_mb
                            : (uint32_t)n->flash_mb_x16 * 16 + n->flash_mb_rem;
-        snprintf(line, sizeof(line), "%02x%02x%02x%02x%02x%02x  %-7s  %-5u  %-6u  %-5u  %s%s",
+        snprintf(line, sizeof(line), "%02x%02x%02x%02x%02x%02x  %-7s  %-5u  %-6lu  %-5lu  %s%s",
                  n->id[0], n->id[1], n->id[2], n->id[3], n->id[4], n->id[5],
-                 chip, self ? g->ncores : n->ncores,
-                 ram, fl, alive ? "up" : "DOWN",
+                 chip, (unsigned)(self ? g->ncores : n->ncores),
+                 (unsigned long)ram, (unsigned long)fl, alive ? "up" : "DOWN",
                  self ? " (me)" : "");
         out(ctx, line);
     }
@@ -104,8 +104,8 @@ static void print_jobs(gl_node_t *g, gl_print_fn out, void *ctx)
         return;
     }
     /* worker: show the machine's job list as announced by the brain */
-    snprintf(line, sizeof(line), "machine: %u job(s) running",
-             g->seen_jobs_running);
+    snprintf(line, sizeof(line), "machine: %lu job(s) running",
+             (unsigned long)g->seen_jobs_running);
     out(ctx, line);
 }
 
@@ -145,12 +145,13 @@ void gl_console(gl_node_t *g, const char *input, gl_print_fn out, void *ctx)
     }
     if (!strcmp(argv[0], "status")) {
         snprintf(line, sizeof(line),
-                 "role=%s  coord=%02x%02x%02x%02x%02x%02x  boards_up=%u  rx=%u tx=%u drops=%u",
+                 "role=%s  coord=%02x%02x%02x%02x%02x%02x  boards_up=%lu  rx=%lu tx=%lu drops=%lu",
                  gl_role_name(g->role),
                  g->coord_id[0], g->coord_id[1], g->coord_id[2],
                  g->coord_id[3], g->coord_id[4], g->coord_id[5],
-                 roster_alive_pub(g) + 1,
-                 g->stat_rx, g->stat_tx, g->stat_drops);
+                 (unsigned long)(roster_alive_pub(g) + 1),
+                 (unsigned long)g->stat_rx, (unsigned long)g->stat_tx,
+                 (unsigned long)g->stat_drops);
         out(ctx, line);
         print_jobs(g, out, ctx);
         return;
@@ -175,8 +176,10 @@ void gl_console(gl_node_t *g, const char *input, gl_print_fn out, void *ctx)
         gl_job_t *j = &g->jobs[ji];
         for (uint32_t c = 0; c < j->nchunks && c < 16; c++) {
             static const char *cs[] = {"pending", "assigned", "done", "failed"};
-            snprintf(line, sizeof(line), "  chunk %-2u [%u,%u)  %s",
-                     c, j->chunks[c].lo, j->chunks[c].hi, cs[j->chunks[c].state & 3]);
+            snprintf(line, sizeof(line), "  chunk %-2lu [%lu,%lu)  %s",
+                     (unsigned long)c, (unsigned long)j->chunks[c].lo,
+                     (unsigned long)j->chunks[c].hi,
+                     cs[j->chunks[c].state & 3]);
             out(ctx, line);
         }
         if (j->nchunks > 16) out(ctx, "  ...");
@@ -312,7 +315,8 @@ void gl_console(gl_node_t *g, const char *input, gl_print_fn out, void *ctx)
     if (!strcmp(argv[0], "ls")) {
         if (g->kv_n == 0) { out(ctx, "(empty)"); return; }
         for (uint8_t i = 0; i < g->kv_n; i++) {
-            snprintf(line, sizeof(line), "%s (%u bytes)", g->kv[i].key, g->kv[i].val_len);
+            snprintf(line, sizeof(line), "%s (%lu bytes)", g->kv[i].key,
+                     (unsigned long)g->kv[i].val_len);
             out(ctx, line);
         }
         return;

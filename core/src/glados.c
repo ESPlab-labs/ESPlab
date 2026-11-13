@@ -242,7 +242,7 @@ static void election_start(gl_node_t *g, const char *why)
     ELP_PUT_U32(body + 0, (uint32_t)g->election_gen);
     ELP_PUT_U32(body + 4, (uint32_t)g->score);
     ELP_PUT_U64(body + 8, g->boot_id);
-    log_add(g, "election gen=%u (%s)", g->election_gen, why);
+    log_add(g, "election gen=%lu (%s)", (unsigned long)g->election_gen, why);
     send_frame(g, NULL, ELP_ELECTION, body, 16);
 }
 
@@ -385,9 +385,10 @@ static void job_check_done(gl_node_t *g, gl_job_t *j)
     }
     if (any_open) return;
     j->state = any_failed ? GL_JOB_FAILED : GL_JOB_DONE;
-    log_add(g, "job %s %s: %u/%u chunks ok, agg=%u",
+    log_add(g, "job %s %s: %lu/%lu chunks ok, agg=%lu",
             j->name, (j->state == GL_JOB_DONE) ? "DONE" : "FAILED",
-            j->done_count, j->nchunks, j->aggregate);
+            (unsigned long)j->done_count, (unsigned long)j->nchunks,
+            (unsigned long)j->aggregate);
 }
 
 static void coord_give_chunk(gl_node_t *g, const uint8_t worker[6])
@@ -437,21 +438,24 @@ static void coord_result(gl_node_t *g, const uint8_t *body, size_t len)
             uint32_t val; ELP_GET_U32(p, val);
             if (j->kind == GL_TASK_SEARCH) {
                 j->aggregate += val;
-                log_add(g, "result %s#%u: ok count=%u", j->name, chunk, val);
+                log_add(g, "result %s#%lu: ok count=%lu", j->name,
+                        (unsigned long)chunk, (unsigned long)val);
             } else if (j->kind == GL_TASK_VM) {
                 j->aggregate += val;
-                log_add(g, "result %s#%u: ok val=%u", j->name, chunk, val);
+                log_add(g, "result %s#%lu: ok val=%lu", j->name,
+                        (unsigned long)chunk, (unsigned long)val);
             }
         } else if (out_len > 0) {
             char txt[24];
             uint16_t n = out_len < 23 ? out_len : 23;
             memcpy(txt, p, n);
             txt[n] = 0;
-            log_add(g, "result %s#%u: ok '%s'", j->name, chunk, txt);
+            log_add(g, "result %s#%lu: ok '%s'", j->name, (unsigned long)chunk, txt);
         }
     } else {
         j->fail_count++;
-        log_add(g, "result %s#%u: FAILED status=%u", j->name, chunk, status);
+        log_add(g, "result %s#%lu: FAILED status=%lu", j->name,
+                (unsigned long)chunk, (unsigned long)status);
     }
     uint8_t ack[13];
     ELP_PUT_U64(ack, job_id);
@@ -477,8 +481,9 @@ static void coord_job_poll(gl_node_t *g)
                 if (r->attempts >= 5) {
                     r->state = 3;
                     j->fail_count++;
-                    log_add(g, "chunk %s#%u failed after %u attempts",
-                            j->name, c, r->attempts);
+                    log_add(g, "chunk %s#%lu failed after %lu attempts",
+                            j->name, (unsigned long)c,
+                            (unsigned long)j->chunks[c].attempts);
                     job_check_done(g, j);
                 } else {
                     r->state = 0;
@@ -558,9 +563,10 @@ void worker_execute_and_deliver(gl_node_t *g, const uint8_t *body, size_t len)
     } else if (kind == GL_TASK_HELLO) {
         /* result = this core's card, as text */
         out_len = (uint16_t)snprintf((char *)out, JOB_OUT_MAX,
-            "core %02x%02x chip=%u cores=%u ram=%uk flash=%umb",
-            g->self_id[4], g->self_id[5], g->chipspec, g->ncores,
-            g->ram_kb, g->flash_mb);
+            "core %02x%02x chip=%lu cores=%lu ram=%luk flash=%lumb",
+            g->self_id[4], g->self_id[5], (unsigned long)g->chipspec,
+            (unsigned long)g->ncores, (unsigned long)g->ram_kb,
+            (unsigned long)g->flash_mb);
         if (out_len >= JOB_OUT_MAX) out_len = JOB_OUT_MAX - 1;
     } else if (kind == GL_TASK_VM) {
         ELP_GET_U16(body + p, a->code_len); p += 2;
@@ -700,8 +706,8 @@ static void coord_submit(gl_node_t *g, const uint8_t *body, size_t len)
             il2 > GL_VM_INPUT_MAX || nch == 0) { g->stat_drops++; return; }
         uint64_t id;
         if (gl_submit_vm(g, body + 9, cl2, body + 9 + cl2, il2, nch, &id) == 0)
-            log_add(g, "remote submit: vm %uB code, %uB input, %u chunks #%llu",
-                    (unsigned)cl2, (unsigned)il2, (unsigned)nch,
+            log_add(g, "remote submit: vm %luB code, %luB input, %lu chunks #%llu",
+                    (unsigned long)cl2, (unsigned long)il2, (unsigned long)nch,
                     (unsigned long long)id);
     } else if (kind == GL_TASK_SEARCH) {
         uint64_t id;
