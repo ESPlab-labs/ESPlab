@@ -18,6 +18,9 @@ but *one* computer, not a distributed system you have to think about.
 - **A task VM.** User tasks compile to a tiny bytecode blob that runs on any
   board, sandboxed so a bad task dies without taking the machine with it.
 
+**Related repos and docs:** [LINKS.md](LINKS.md) — the WebUI and ESP On
+Demand services, and the VM documentation site.
+
 **Status: v0.1 — the machine exists and is verified.** Election, work
 sharing, board-death recovery, brain-death re-election, pooled storage, VM
 jobs, and fragment reassembly are all tested by a deterministic simulator

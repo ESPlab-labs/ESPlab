@@ -94,9 +94,12 @@ class Decoder:
             r = webui_cmd(self.webui,
                           f"submit frame {self.code_hex} {frame_hex} {nchunks}",
                           wait=1.2)
-            # the submit ack echoes the job id on the coordinator; find it
+            # the job id shows in the coordinator's jobs listing; a frame
+            # decode takes well under a second of machine time, so wait a
+            # beat before the first poll instead of hammering the console
+            time.sleep(1.6)
             jobid = None
-            for _ in range(40):
+            for _ in range(20):
                 jobs = webui_cmd(self.webui, "jobs", wait=0.5)
                 for l in jobs:
                     f = l.split()
@@ -104,16 +107,16 @@ class Decoder:
                         jobid = f[0].lstrip("#")
                 if jobid:
                     break
-                time.sleep(0.3)
+                time.sleep(0.5)
             if not jobid:
                 return None, r, time.time() - t0
-            for _ in range(120):
+            for _ in range(60):
                 jobs = webui_cmd(self.webui, "jobs", wait=0.5)
                 if any(l.startswith(f"#{jobid}") and "DONE" in l for l in jobs):
                     return jobid, r, time.time() - t0
                 if any(l.startswith(f"#{jobid}") and "FAILED" in l for l in jobs):
                     return None, r, time.time() - t0
-                time.sleep(0.3)
+                time.sleep(0.5)
             return None, r, time.time() - t0
 
     def fetch(self, jobid):
@@ -135,7 +138,8 @@ class Decoder:
             return None, dt
         t0 = time.time()
         pix = self.fetch(jobid)
-        return pix, dt + (time.time() - t0)
+        total = dt + (time.time() - t0)
+        return pix, total * 1000.0      # honest milliseconds
 
 def expand(pix):
     """palette indices -> rgb triples for the browser canvas"""
