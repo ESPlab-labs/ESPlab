@@ -1,0 +1,13 @@
+build/
+*.o
+*.a
+*.pyc
+__pycache__/
+*.bin
+*.elf
+*.map
+sdkconfig.old
+dependencies.lock
+managed_components/
+.vim/
+*.swp
