@@ -1,8 +1,8 @@
 # ESP On Demand (in-tree service copy)
 
 **The service itself lives in its own repo:
-[TycoonCoder/ESP-On-Demand](https://github.com/TycoonCoder/ESP-On-Demand) —
-including the [end-to-end walkthrough](https://github.com/TycoonCoder/ESP-On-Demand/blob/main/QUICKSTART.md)
+[TycoonCoder/ESP-On-Demand](https://github.com/ESPlab-labs/ESP-On-Demand) —
+including the [end-to-end walkthrough](https://github.com/ESPlab-labs/ESP-On-Demand/blob/main/QUICKSTART.md)
 (virtual boards, real boards, encoding a clip, playing video).**
 
 This is the in-tree copy of the docs for the machine's test surface.
@@ -22,7 +22,7 @@ every band is decoded in parallel by a sandboxed bytecode task running on
 whichever board is free. The browser just paints the results.
 
 It requires and runs on top of the
-[ESPlab WebUI](https://github.com/TycoonCoder/ESPlab-WebUI) (the machine's
+[ESPlab WebUI](https://github.com/ESPlab-labs/ESPlab-WebUI) (the machine's
 dashboard service) — all cluster access goes through it.
 
 ## How it works
@@ -61,12 +61,12 @@ tools/eod_prep.py x x --synth           # or a synthetic test clip
 
 ## Running it
 
-Requires the [ESPlab WebUI](https://github.com/TycoonCoder/ESPlab-WebUI) and
+Requires the [ESPlab WebUI](https://github.com/ESPlab-labs/ESPlab-WebUI) and
 an ESPlab machine (virtual boards or real ones):
 
 ```bash
 # 1. the machine + WebUI (see the ESPlab repo's quick start)
-git clone https://github.com/TycoonCoder/ESPlab && cd ESPlab && make
+git clone https://github.com/ESPlab-labs/ESPlab && cd ESPlab && make
 python3 tools/webui/webui.py &                 # dashboard on :8080
 
 # 2. ESP On Demand on top of it
@@ -78,7 +78,7 @@ Open `http://<machine>:8090/` and press play. Per-frame decode times are
 reported live at `/metrics`.
 
 With real boards: flash them with ESPlab firmware (see the
-[main repo](https://github.com/TycoonCoder/ESPlab#readme)), point `--webui`
+[main repo](https://github.com/ESPlab-labs/ESPlab#readme)), point `--webui`
 at the machine running the dashboard, and play. On hardware the WebUI speaks
 the coordinator's serial console; EOD never talks to boards directly.
 
@@ -89,7 +89,7 @@ the coordinator's serial console; EOD never talks to boards directly.
 
 The codec (encoder `eod_enc.c`, header `eod_codec.h`), the decoder assembly
 (`examples/eod_decode.s`), and the end-to-end test (`eod_e2e.py`) live in the
-[ESPlab repo](https://github.com/TycoonCoder/ESPlab), because they are part
+[ESPlab repo](https://github.com/ESPlab-labs/ESPlab), because they are part
 of the machine's test surface.
 
 ## Status

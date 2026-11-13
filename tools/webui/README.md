@@ -1,11 +1,11 @@
 # ESPlab WebUI
 
-**The dashboard service for [ESPlab](https://github.com/TycoonCoder/ESPlab)
+**The dashboard service for [ESPlab](https://github.com/ESPlab-labs/ESPlab)
 — many boards, one computer.**
 
 Point a browser at the machine and see the whole cluster: boards, jobs,
 storage, machine log — and drive it. ESP On Demand
-([ESP-On-Demand](https://github.com/TycoonCoder/ESP-On-Demand)), the video
+([ESP-On-Demand](https://github.com/ESPlab-labs/ESP-On-Demand)), the video
 service, runs on top of this UI: it needs this service's console-backed API
 to reach the cluster.
 
@@ -30,7 +30,7 @@ Stdlib only: no pip, no framework, runs on anything with Python 3.
 ## Running it
 
 ```bash
-git clone https://github.com/TycoonCoder/ESPlab && cd ESPlab && make
+git clone https://github.com/ESPlab-labs/ESPlab && cd ESPlab && make
 python3 tools/webui/webui.py          # dashboard on :8080
 ```
 

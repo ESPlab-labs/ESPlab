@@ -56,7 +56,7 @@
   <p class="tag">Many ESP32 boards, one computer. Pooled CPU, pooled storage,
      a sandboxed task VM — fully local, ESP-NOW only.</p>
   <div class="cta">
-    <a class="btn" href="https://github.com/esplab-labs/ESPlab">Get the machine</a>
+    <a class="btn" href="https://github.com/ESPlab-labs/ESPlab">Get the machine</a>
     <a class="btn ghost" href="vm.html">Read the VM docs</a>
   </div>
 </header>
@@ -66,7 +66,7 @@
 <section>
   <h2>The projects</h2>
   <div class="grid">
-    <a class="card" href="https://github.com/esplab-labs/ESPlab">
+    <a class="card" href="https://github.com/ESPlab-labs/ESPlab">
       <h3>ESPlab</h3>
       <p>The machine. One firmware for every board; roles are elected, not
          flashed. The machine chops the work; losing a board costs a retry,
@@ -74,13 +74,13 @@
       <span class="pill">firmware</span><span class="pill">VM</span>
       <span class="pill">virtual boards</span>
     </a>
-    <a class="card" href="https://github.com/esplab-labs/ESPlab-WebUI">
+    <a class="card" href="https://github.com/ESPlab-labs/ESPlab-WebUI">
       <h3>ESPlab WebUI</h3>
       <p>The machine's dashboard service. Boards, jobs, storage, log — in a
          browser, driven through the same console a human types into.</p>
       <span class="pill">service</span><span class="pill">stdlib-only</span>
     </a>
-    <a class="card" href="https://github.com/esplab-labs/ESP-On-Demand">
+    <a class="card" href="https://github.com/ESPlab-labs/ESP-On-Demand">
       <h3>ESP On Demand</h3>
       <p>Video, decoded by the cluster. Every frame becomes 12 pixel-band
          jobs; all boards decode in parallel. The homelab proof.</p>
@@ -108,19 +108,32 @@
 </section>
 
 <section>
-  <h2>Run it in one minute — no hardware needed</h2>
-  <p class="note">Every part of ESPlab is portable C, so a "board" can be a
-     Linux process. The prebuilt tools ship in the
-     <a href="https://github.com/esplab-labs/ESPlab/releases">release</a>:</p>
+  <h2>Run it on real boards</h2>
+  <p class="note">One firmware for every board — flash each one the same way
+     and they organize themselves. Toolchain setup and per-chip builds:
+     the <a href="https://github.com/ESPlab-labs/ESPlab/blob/main/docs/HARDWARE.md">hardware guide</a>.</p>
+  <pre><code>git clone https://github.com/ESPlab-labs/ESPlab &amp;&amp; cd ESPlab/firmware
+idf.py set-target esp32        # or esp32s2 / esp32s3 / esp32c3
+idf.py -p /dev/ttyUSB0 flash monitor
+# repeat per board — roles are elected at run time, never flashed</code></pre>
+  <p class="note">From any board's console:
+     <code>submit search 0 10000 13</code> — the machine does the rest.</p>
+</section>
+
+<section>
+  <h2>No hardware yet?</h2>
+  <p class="note">Every part of ESPlab is portable C, so the whole machine —
+     boards, radio, VM — runs on your PC for testing. The emulator runs the
+     identical core code over UDP: see
+     <a href="https://github.com/ESPlab-labs/ESPlab/blob/main/docs/TESTING.md">docs/TESTING.md</a>,
+     or the prebuilt <code>vboard</code> in the
+     <a href="https://github.com/ESPlab-labs/ESPlab/releases">release</a>:</p>
   <pre><code>tar xzf esplab-host-tools-linux-x64.tar.gz
 ./vboard --id 01 &amp; ./vboard --id 02 --chip s3 &amp; sleep 6
 # in another terminal, from the repo:
-python3 tools/webui/webui.py        # dashboard: http://localhost:8080
-# then, from any board console:
-submit search 0 100000 13           # the machine does the rest</code></pre>
-  <p class="note">Real boards: same firmware, <code>idf.py flash</code> —
-     flashing guide is in the
-     <a href="https://github.com/esplab-labs/ESPlab#readme">README</a>.</p>
+python3 tools/webui/webui.py        # dashboard: http://localhost:8080</code></pre>
+  <p class="note">Virtual boards prove correctness, not speed — throughput
+     numbers are measured on real hardware only.</p>
 </section>
 
 <section>
@@ -131,12 +144,12 @@ submit search 0 100000 13           # the machine does the rest</code></pre>
       <p>Instruction set, sandbox model, the assembler, and worked examples —
          including the bytecode that decodes video.</p>
     </a>
-    <a class="card" href="https://github.com/esplab-labs/ESPlab/blob/main/docs/ARCHITECTURE.md">
+    <a class="card" href="https://github.com/ESPlab-labs/ESPlab/blob/main/docs/ARCHITECTURE.md">
       <h3>Architecture</h3>
       <p>Election, scheduling, storage, fragmentation, and why the machine
          is designed the way it is.</p>
     </a>
-    <a class="card" href="https://github.com/esplab-labs/ESPlab/releases">
+    <a class="card" href="https://github.com/ESPlab-labs/ESPlab/releases">
       <h3>Releases</h3>
       <p>Prebuilt host tools and firmware notes for every tagged version,
          with checksums.</p>

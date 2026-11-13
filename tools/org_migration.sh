@@ -17,7 +17,7 @@ echo "2. transfer the three repos (this RETIRES the old TycoonCoder/... URLs wit
 for r in $REPOS; do
   echo "   transferring $r"
   gh api "/repos/TycoonCoder/$r/transfer" -X POST \
-     -f new_owner=$ORG -F team_ids=[] --silent && echo "   $r -> $ORG ✓"
+     -f new_owner=$ORG --silent && echo "   $r -> $ORG ✓"
 done
 
 echo "3. flip local remotes"

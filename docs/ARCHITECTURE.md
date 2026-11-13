@@ -1,6 +1,6 @@
 # ESPlab — Architecture
 
-*(Named ESPlab. The repo: github.com/TycoonCoder/ESPlab.)*
+*(Named ESPlab. The repo: github.com/ESPlab-labs/ESPlab.)*
 
 ## 1. Vision
 
@@ -209,4 +209,4 @@ hardware; CI builds firmware + host tests on every push.
 
 ## 12. Naming
 
-**Decided: ESPlab.** Repo: github.com/TycoonCoder/ESPlab.
+**Decided: ESPlab.** Repo: github.com/ESPlab-labs/ESPlab.

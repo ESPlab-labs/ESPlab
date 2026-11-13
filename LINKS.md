@@ -14,10 +14,10 @@ itself**. Fully local — ESP-NOW only, no router, no cloud.
 
 **Services that run on ESPlab (separate repos, linked):**
 
-- [ESPlab-WebUI](https://github.com/TycoonCoder/ESPlab-WebUI) — the
+- [ESPlab-WebUI](https://github.com/ESPlab-labs/ESPlab-WebUI) — the
   machine's dashboard: boards, jobs, storage, log; console-backed,
   stdlib-only. In-repo copy: `tools/webui/`.
-- [ESP-On-Demand](https://github.com/TycoonCoder/ESP-On-Demand) — video
+- [ESP-On-Demand](https://github.com/ESPlab-labs/ESP-On-Demand) — video
   on the cluster: every frame decoded by all boards in parallel.
   Requires the WebUI. Codec + decoder live here (`tools/eod_*`,
   `examples/eod_decode.s`); the service repo consumes them.

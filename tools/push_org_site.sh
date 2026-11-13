@@ -9,7 +9,7 @@ WORK=/tmp/org-site
 gh repo view $ORG/$ORG.github.io >/dev/null 2>&1 || \
   gh repo create $ORG/$ORG.github.io --public --description "ESPlab Labs — documentation home"
 
-rm -rf $WORK && mkdir -p $WORK
+rm -rf $WORK && mkdir -p $WORK/.github/workflows
 cd $WORK
 git init -b main -q
 git remote add origin "https://github.com/$ORG/$ORG.github.io.git"

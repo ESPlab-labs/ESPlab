@@ -27,52 +27,61 @@ boards itself. Losing a board costs a retry, not the job.
   brain dies, the machine re-elects and keeps going.
 - **Task VM** — user tasks compile to a tiny deterministic bytecode that
   runs on any board, sandboxed with hard time/memory/output limits so a bad
-  task dies alone. See the [VM documentation](https://tycooncoder.github.io/ESPlab/vm.html).
+  task dies alone. See the [VM documentation](https://esplab-labs.github.io/vm.html).
 - **Pooled storage** — a read-mostly key/value store spread across boards;
   write on one board, read from any.
 
-## Quick start
+## Quick start (real boards)
 
-No hardware needed — a "board" can be a Linux process running the same core
-code as the real firmware:
-
-```bash
-git clone https://github.com/TycoonCoder/ESPlab
-cd ESPlab
-make && make test          # deterministic cluster simulator, ALL TESTS PASSED
-```
-
-Bring up three boards and drive the machine from any of them:
+One-time toolchain setup, then flash every board the same way — roles are
+elected at run time, never flashed:
 
 ```bash
-./build/vboard --id 1 --cores 2 --ram 290 --flash 4 --console
-./build/vboard --id 2 --chip s3 --cores 2 --ram 512 --flash 8 --console
-./build/vboard --id 3 --cores 2 --ram 290 --flash 4 --console
+git clone https://github.com/ESPlab-labs/ESPlab && cd ESPlab
+# ESP-IDF v5.2 install: see docs/HARDWARE.md Step 1 (one-time, ~10 min)
+cd firmware
+idf.py set-target esp32          # or esp32s2 / esp32s3 / esp32c3
+idf.py -p /dev/ttyUSB0 flash monitor
 ```
+
+The monitor shows the machine waking up:
+
+```
+ESPlab node up: aabbccddeeff
+election gen=1 (no cluster heard)
+I am the coordinator
+```
+
+Flash your other boards the same way (one port each). They join within
+seconds and the stronger chip wins the election on merit. Then use the
+machine from any board's console:
 
 ```text
-status                        # what the machine looks like from here
-submit search 0 10000 13      # count multiples of 13 below 10000, pooled
-jobs                          # every job on the machine, from any board
-put greeting hello from the machine
-get greeting                  # pooled storage: write on one, read anywhere
-log                           # the machine's own log
+(esplab) status                  # every board, with chip type
+(esplab) submit search 0 10000 13
+(esplab) jobs
+(esplab) put greeting hello from the machine
+(esplab) get greeting
 ```
 
-Prebuilt host tools (`vboard`, `vbasm`, `eod_enc`) are in
-[Releases](https://github.com/TycoonCoder/ESPlab/releases) — no compiler
-needed.
+**The complete hardware guide — toolchain, serial ports, mixed-chip fleets,
+what the console should print, troubleshooting — is
+[docs/HARDWARE.md](docs/HARDWARE.md).**
 
-### The dashboard
+From the computer the boards are plugged into, add the dashboard and the
+media service:
 
 ```bash
-python3 tools/webui/webui.py   # http://localhost:8080
+python3 tools/webui/webui.py                    # dashboard: http://localhost:8080
+python3 tools/eod_serve.py --webui http://127.0.0.1:8080 \
+        --clip clip.eod --port 8090             # video:    http://localhost:8090
 ```
 
-See the whole machine in a browser — boards, jobs, storage, log — and submit
-work through it. The dashboard is itself a service *on* the machine.
+No hardware yet? **[docs/TESTING.md](docs/TESTING.md)** runs the whole
+machine on your PC with virtual boards — same core code, UDP instead of
+radio.
 
-### Writing your own tasks (the VM)
+## Writing your own tasks (the VM)
 
 ```text
 cat > task.s <<'EOF'
@@ -94,28 +103,17 @@ done:
   halt
 EOF
 tools/vbasm task.s -o task.bin
-./build/vboard --id 9 --console
 (esplab) submit vm task.bin < input.bin 4   # 4 chunks over the input
 ```
 
 The full instruction set, sandbox rules, and worked examples are in the
-[VM documentation](https://tycooncoder.github.io/ESPlab/vm.html).
-
-## Real hardware
-
-The `firmware/` tree is a thin ESP-IDF adapter over the same portable core;
-CI builds it for real ESP32 targets on every push. The complete flashing
-guide — toolchain install, per-chip builds, serial ports, what the console
-should print, troubleshooting — is in
-**[docs/HARDWARE.md](docs/HARDWARE.md)**. One image for every board; roles
-(coordinator/worker) are elected at run time. USB flashing is documented
-there today; OTA is the next milestone ([docs/MILESTONES.md](docs/MILESTONES.md)).
+[VM documentation](https://esplab-labs.github.io/vm.html).
 
 ## Related projects
 
-- [ESPlab-WebUI](https://github.com/TycoonCoder/ESPlab-WebUI) — the machine's
+- [ESPlab-WebUI](https://github.com/ESPlab-labs/ESPlab-WebUI) — the machine's
   dashboard service (console-backed)
-- [ESP-On-Demand](https://github.com/TycoonCoder/ESP-On-Demand) — a media
+- [ESP-On-Demand](https://github.com/ESPlab-labs/ESP-On-Demand) — a media
   server that runs on ESPlab: video decoded by the whole cluster
 - [LINKS.md](LINKS.md) — full list of repos and docs
 
@@ -126,7 +124,7 @@ core/      the machine: node core, task VM, console (portable C, no OS deps)
 host/      vboard: one node as a Linux process (UDP transport)
 firmware/  the ESP32 board firmware (thin adapter over the same core)
 tools/     vbasm assembler, cluster driver, web dashboard
-docs/      ARCHITECTURE.md (the design), MILESTONES.md (the build order)
+docs/      ARCHITECTURE.md, HARDWARE.md (flashing), TESTING.md (emulator), MILESTONES.md
 ```
 
 ## Status
@@ -135,6 +133,8 @@ v0.1.1 — the machine exists and is verified. Election, work sharing,
 board-death recovery, brain-death re-election, pooled storage, VM jobs, and
 fragment reassembly are all covered by a deterministic simulator
 (`core/tests`) and proven live on a 3-node virtual cluster over UDP.
+Real-board flashing is documented and CI-verified; USB flashing on your
+desk is the next proof, then OTA.
 
 ## License
 
