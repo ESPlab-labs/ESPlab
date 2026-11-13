@@ -16,7 +16,7 @@
 #define VM_SLOT_SIZE  256
 #define VM_CODE_MAX   256
 #define VM_STACK      8
-#define GL_VM_INPUT_MAX 1408  /* frame-decode jobs carry a whole frame's RLE */
+#define GL_VM_INPUT_MAX 2816  /* frame jobs carry a whole frame's RLE (real footage ~2.7KB) */
 #define VM_CYCLES_PER_SLICE 5000
 
 /* opcodes — a full byte each; operands packed per-format below */

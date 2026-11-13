@@ -6,5 +6,5 @@
 #   - UART0 serial line  -> the console
 #   - flash partition    -> the KV store (M4)
 idf_component_register(SRCS "main.c" "esplab_now.c" "console_uart.c"
-                       "../../core/src/glados.c" "../../core/src/vm.c" "../../core/src/console.c"
+                       "../../core/src/machine.c" "../../core/src/vm.c" "../../core/src/console.c"
                        INCLUDE_DIRS "." "../../core/inc")

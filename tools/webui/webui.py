@@ -16,10 +16,49 @@ ROOT = os.path.dirname(os.path.abspath(__file__)) + "/../.."
 VB = ROOT + "/build/vboard"
 PORT = int(os.environ.get("ESPLAB_WEB_PORT", "8080"))
 EOD_URL = os.environ.get("ESPLAB_EOD_URL", "")   # ESP On Demand base, optional
+SERIAL = os.environ.get("ESPLAB_SERIAL", "")     # e.g. /dev/ttyUSB0 (real boards)
 
 # ---------- the board this service runs "on" ----------
 board_args = ["--id", "09", "--chip", "s3", "--cores", "2", "--ram", "512",
               "--flash", "8", "--console"]
+
+class SerialConsole:
+    """Talk to a real board's USB serial console (pyserial, optional dep)."""
+    def __init__(self, port):
+        import serial                      # pip install pyserial
+        self.s = serial.Serial(port, 115200, timeout=0.2)
+        self.lock = threading.Lock()
+
+    def cmd(self, command, wait=0.8):
+        with self.lock:
+            self.s.reset_input_buffer()
+            self.s.write((command + "\n").encode())
+            time.sleep(wait)
+            out, buf = [], b""
+            deadline = time.time() + wait + 2.5
+            while time.time() < deadline:
+                chunk = self.s.read(4096)
+                if chunk:
+                    buf += chunk
+                    while b"\n" in buf:
+                        line, buf = buf.split(b"\n", 1)
+                        out.append(line.decode(errors="replace").strip())
+                else:
+                    # a quiet 300ms gap after output started = end of reply
+                    if out and not chunk:
+                        break
+            return [l for l in out if l and not l.startswith("(")]
+
+    def drain_silent(self, wait=0.3):
+        time.sleep(wait)
+
+    def take_the_machine(self):
+        # a real coordinator already runs the machine; asking it to elect
+        # makes the strongest board win, which may not be the one we're
+        # wired to — so only claim the machine if nobody has it
+        for line in self.cmd("status"):
+            if "coord=" in line:
+                print("[webui]", line)
 
 class BoardConsole:
     def __init__(self, args):
@@ -98,7 +137,7 @@ def parse_status(lines):
     return s
 
 # ---------- machine singleton ----------
-board = BoardConsole(board_args)
+board = (SerialConsole(SERIAL) if SERIAL else BoardConsole(board_args))
 board.drain_silent(1.0)          # let it boot
 threading.Thread(target=board.take_the_machine, daemon=True).start()
 BOARD_URL_ID = "09"
@@ -289,4 +328,5 @@ if __name__ == "__main__":
     try:
         ThreadingHTTPServer(("0.0.0.0", PORT), Handler).serve_forever()
     except KeyboardInterrupt:
-        board.p.kill()
+        if isinstance(board, BoardConsole):
+            board.p.kill()

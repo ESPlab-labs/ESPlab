@@ -1,6 +1,6 @@
 #!/bin/bash
 # build + run the band-level decoder test (frame 0 of grad.eod)
-cd /home/joshua/projects/esp32-cluster
+cd "$(dirname "$0")/.."
 cc -Wall -O2 -Icore/inc tools/eod_bandtest.c core/src/vm.c -o build/eod_bandtest || exit 1
 python3 tools/eod_frame.py /tmp/grad.eod 0 > /tmp/frame0.hex
 python3 -c "

@@ -21,7 +21,7 @@ for r in $REPOS; do
 done
 
 echo "3. flip local remotes"
-cd /home/joshua/projects/esp32-cluster
+cd "$(dirname "$0")/.."
 git remote set-url origin "https://github.com/$ORG/ESPlab.git"
 cd /tmp/eod-repo     && git remote set-url origin "https://github.com/$ORG/ESP-On-Demand.git"
 cd /tmp/webui-repo   && git remote set-url origin "https://github.com/$ORG/ESPlab-WebUI.git"

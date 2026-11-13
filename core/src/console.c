@@ -2,7 +2,7 @@
  * Runs identically on a board's serial line and on a virtual board's stdin.
  * The node you are plugged into IS the computer; these commands address the
  * machine, never "board #3" directly. */
-#include "glados.h"
+#include "machine.h"
 #include "vm.h"
 #include <string.h>
 #include <stdio.h>
@@ -114,7 +114,7 @@ void gl_console(gl_node_t *g, const char *input, gl_print_fn out, void *ctx)
 {
     /* `submit vm` carries code+input as hex: up to ~1200 chars. The console
      * buffer must hold a full command, not just a human's fingers. */
-    static char buf[6000];   /* frame submits (esp on demand) carry ~2.6KB hex */
+    static char buf[11000];  /* frame submits carry ~5.6KB hex (2816B input) */
     static char *argv[10];
     snprintf(buf, sizeof(buf), "%s", input ? input : "");
     int n = split(buf, argv, 10);
@@ -395,7 +395,7 @@ void gl_console(gl_node_t *g, const char *input, gl_print_fn out, void *ctx)
     }
     if (!strcmp(argv[0], "put") && n >= 3) {
         /* join argv[2..] with spaces as the value */
-        char val[GLADOS_KV_VAL_MAX];
+        char val[GL_KV_VAL_MAX];
         size_t o = 0;
         for (int i = 2; i < n; i++) {
             size_t l = strlen(argv[i]);
@@ -411,7 +411,7 @@ void gl_console(gl_node_t *g, const char *input, gl_print_fn out, void *ctx)
         return;
     }
     if (!strcmp(argv[0], "get") && n >= 2) {
-        uint8_t val[GLADOS_KV_VAL_MAX];
+        uint8_t val[GL_KV_VAL_MAX];
         uint16_t vl = sizeof(val);
         if (gl_kv_get(g, argv[1], val, &vl) == 0) {
             snprintf(line, sizeof(line), "%s = %.*s", argv[1], (int)vl, (char *)val);

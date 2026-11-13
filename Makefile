@@ -1,7 +1,7 @@
 # Makefile — ESPlab host build (the virtual boards, tests, and EOD tooling)
 CC      ?= cc
 CFLAGS  ?= -Wall -Wextra -std=gnu11 -O2
-CORE    = core/src/glados.c core/src/vm.c core/src/console.c
+CORE    = core/src/machine.c core/src/vm.c core/src/console.c
 INC     = -Icore/inc
 
 all: build/vboard build/test_cluster build/vbasm build/eod_enc build/eod_decode.bin

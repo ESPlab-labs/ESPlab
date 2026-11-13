@@ -3,7 +3,7 @@
 # eod_serve (port 8092), then fetch /api/info and frame 0 through the
 # full chain (webui console -> cluster job -> decoded pixels).
 set -e
-cd /home/joshua/projects/esp32-cluster
+cd "$(dirname "$0")/.."
 export ESPLAB_VB_PORT=7911
 export ESPLAB_WEB_PORT=8091
 python3 tools/webui/webui.py > /tmp/eod_smoke_webui.log 2>&1 &

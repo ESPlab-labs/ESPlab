@@ -1,7 +1,7 @@
 #!/bin/bash
 # honest timing check: wall-clock each /api/frame fetch on a fresh service
 set -e
-cd /home/joshua/projects/esp32-cluster
+cd "$(dirname "$0")/.."
 export ESPLAB_VB_PORT=7912
 export ESPLAB_WEB_PORT=8093
 python3 tools/webui/webui.py > /tmp/eod_t_webui.log 2>&1 &

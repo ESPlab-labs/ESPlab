@@ -3,7 +3,7 @@
 # and enable Pages with the workflow build. Run after org_migration.sh.
 set -e
 ORG=esplab-labs
-SRC=/home/joshua/projects/esp32-cluster/docs/site
+SRC="$(dirname "$0")/../docs/site"
 WORK=/tmp/org-site
 
 gh repo view $ORG/$ORG.github.io >/dev/null 2>&1 || \

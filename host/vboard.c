@@ -4,7 +4,7 @@
  * This is the "emulator first" path: everything is exercised here before it
  * touches hardware. The foreground vboard also serves the serial console on
  * stdin, exactly like the real board's USB serial. */
-#include "../core/inc/glados.h"
+#include "../core/inc/machine.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -236,7 +236,7 @@ int main(int argc, char **argv)
     bus.ctx = &vb;
 
     static gl_node_t node;
-    glados_init(&node, &bus, id, chip, cores, ram_kb, flash_mb,
+    gl_init(&node, &bus, id, chip, cores, ram_kb, flash_mb,
                 ELP_CAP_VM | ELP_CAP_STORE, 0);
     vb.node = &node;
     /* the transport clock follows the node for the core's convenience */
@@ -252,8 +252,8 @@ int main(int argc, char **argv)
 
     uint64_t next_tick = mono_ms();
     /* must hold a full `submit vm` command (code+input as hex ≈ 1.2 KB) —
-     * gl_console's buffer is 6000; keep them in sync */
-    char cmdline[6000];
+     * gl_console's buffer is 11000; keep them in sync */
+    char cmdline[11000];
     size_t cmdlen = 0;
     for (;;) {
         bus.now_ms = mono_ms();
@@ -267,9 +267,9 @@ int main(int argc, char **argv)
             memcpy(tmp, vb.rxring[idx], n);
             vb.rx_n--;
             pthread_mutex_unlock(&vb.lock);
-            glados_recv(&node, tmp, n);
+            gl_recv(&node, tmp, n);
         }
-        glados_tick(&node);
+        gl_tick(&node);
 
         /* console on stdin (foreground board only) */
         if (console && console_alive) {

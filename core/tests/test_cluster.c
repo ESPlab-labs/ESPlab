@@ -3,7 +3,7 @@
  * nodes; tests advance simulated time and assert real cluster behavior:
  * election, work splitting, dead-core rescheduling, coordinator death,
  * storage, VM sandbox. */
-#include "../inc/glados.h"
+#include "../inc/machine.h"
 #include "../inc/vm.h"
 #include <stdio.h>
 #include <string.h>
@@ -74,7 +74,7 @@ static void sim_add_board(uint8_t last, uint8_t cores, uint32_t ram, int32_t sco
     buses[i].broadcast = sim_broadcast;
     buses[i].now_ms = S.now;
     S.nodes[i] = malloc(sizeof(gl_node_t));
-    glados_init(S.nodes[i], &buses[i], ids[i], ELP_CHIP_CLASSIC,
+    gl_init(S.nodes[i], &buses[i], ids[i], ELP_CHIP_CLASSIC,
                 cores, ram, 4, ELP_CAP_VM | ELP_CAP_STORE, score);
 }
 
@@ -101,7 +101,7 @@ static void sim_step(void)
                     S.serial++;
                     if (S.drop_mod && (S.serial % S.drop_mod) == S.drop_mod - 1)
                         continue;   /* radio ate this one */
-                    glados_recv(S.nodes[i], dst, n);
+                    gl_recv(S.nodes[i], dst, n);
                     delivered = 1;
                 }
             }
@@ -110,7 +110,7 @@ static void sim_step(void)
     }
 
     for (int i = 0; i < S.nodes_n; i++)
-        glados_tick(S.nodes[i]);
+        gl_tick(S.nodes[i]);
 }
 
 static void sim_run(int ms)
@@ -260,7 +260,7 @@ static void test_kv_storage(void)
     gl_node_t *c = coord();
     if (!c) return;
     CHECK(gl_kv_put(c, "config", (const uint8_t *)"mode=fast", 9) == 0, "put works");
-    uint8_t buf[GLADOS_KV_VAL_MAX];
+    uint8_t buf[GL_KV_VAL_MAX];
     uint16_t bl = sizeof(buf);
     CHECK(gl_kv_get(c, "config", buf, &bl) == 0 && bl == 9 &&
           !memcmp(buf, "mode=fast", 9), "get returns what was put");
@@ -268,7 +268,7 @@ static void test_kv_storage(void)
     bl = sizeof(buf);
     CHECK(gl_kv_get(c, "config", buf, &bl) == -1, "get after del fails");
     /* oversize rejection */
-    uint8_t big[GLADOS_KV_VAL_MAX + 10];
+    uint8_t big[GL_KV_VAL_MAX + 10];
     memset(big, 'x', sizeof(big));
     CHECK(gl_kv_put(c, "big", big, sizeof(big)) == -1, "oversize put rejected");
 }

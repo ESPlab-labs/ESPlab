@@ -49,7 +49,7 @@ Consequences:
   into *is* the computer's front panel (§9).
 - There is **one job list**, **one filesystem**, **one set of settings**.
   Users never address boards individually for normal work.
-- **Failure model (Joshua's decision):** failure of one board is generally
+- **Failure model (user decision):** failure of one board is generally
   failure of the machine — like a dead core or a dead CPU in a desktop. The
   machine does not shard its identity to survive. Specifically:
   - Worker dies mid-task → the supervisor notices, and the task's chunk is
@@ -72,7 +72,7 @@ Consequences:
   **bully-free simple election**: highest (uptime-stable score, then lowest
   MAC) wins. The winner is coordinator **and still executes tasks** like
   everyone else. Election re-runs only when the coordinator goes silent.
-- **Hot join (Joshua's decision):** a board flashed with the image, powered,
+- **Hot join (user decision):** a board flashed with the image, powered,
   and in radio range announces itself; the coordinator adds it to the machine
   and it starts pulling work within seconds. No config, no restart.
 - Each board announces a **capability card**: chip type, core count, RAM,
@@ -89,7 +89,7 @@ Consequences:
   is **chunked and reassembled** with per-chunk ACKs and a small resend
   window. One unacked retry, then the link layer reports the peer unreachable
   and upper layers react per §3's failure model.
-- **Pairing/security (Joshua's decision):** the cluster must not be
+- **Pairing/security (user decision):** the cluster must not be
   meddled-with. Setup: during first boot (or via serial `pair` command) every
   board gets the cluster's shared key; ESP-NOW's built-in encryption (PMK +
   per-peer LTK) is enabled. Boards without the key are ignored at the radio
@@ -102,11 +102,11 @@ Consequences:
   `{type, params, input, range}`. `type` is either a built-in native task
   (compiled into the firmware, fast) or a VM task (a uploaded bytecode blob,
   §7).
-- **The machine does the chopping (Joshua's decision).** The spec declares
+- **The machine does the chopping (user decision).** The spec declares
   the work as a *space* — a numeric range, a byte range of an input file, a
   key list — and the supervisor divides it into chunks sized by each core's
   capability card. Users never hand-split anything.
-- **Pull scheduling (Joshua's decision):** cores ask the supervisor for the
+- **Pull scheduling (user decision):** cores ask the supervisor for the
   next chunk when free. Self-balancing across mixed hardware, and a slow
   board can only slow itself.
 - **Purity rule:** tasks are pure functions of their input chunk — same
@@ -118,7 +118,7 @@ Consequences:
 
 ## 7. The task VM
 
-Joshua's decision: VM, accepting modest speed cost, because it is the only
+Design decision: VM, accepting modest speed cost, because it is the only
 format where one task blob runs on every chip type (classic, S2, S3, C3 —
 Xtensa and RISC-V alike) and can even be re-dispatched to a different board
 mid-job.
@@ -155,7 +155,7 @@ mid-job.
   the disk are offline; the machine reports which files are affected rather
   than pretending. Optional mirroring (keep 2 copies of each block) is a
   later *setting*, default off, documented honestly.
-- **External storage adapters (Joshua's requirement):** a storage backend
+- **External storage adapters (user requirement):** a storage backend
   interface so a board with an SD card (or later, a networked NAS bridge)
   contributes a much bigger share of the disk. v1 ships the interface and an
   SD-card adapter stub as the example.
@@ -176,7 +176,7 @@ pair                        — (re)pair a board with the cluster key
 log                         — recent machine log
 ```
 
-Serial-first gives the bare-bones, maximum-control experience Joshua wants;
+Serial-first gives the bare-bones, maximum-control experience users want;
 the web UI (hosted by the coordinator) is a later, optional layer users can
 flash on, not the default.
 
@@ -185,11 +185,11 @@ flash on, not the default.
 - **Partition plan from day one** (4 MB flash): two OTA-sized app slots
   (~1.6 MB each) + NVS + the board's storage-volume share. Designing this in
   at M1 avoids repartitioning pain when OTA lands.
-- **OTA (Joshua: required):** new firmware is a file in the machine's disk;
+- **OTA (required):** new firmware is a file in the machine's disk;
   the supervisor streams it to each board over ESP-NOW into the inactive
   slot, boards verify (hash), then the machine rolls over board-by-board with
   automatic rollback on failed boot.
-- **USB alternative (Joshua: required):** every release also flashes the
+- **USB alternative (required):** every release also flashes the
   plain way (`esptool` / IDE) for people who want it; the image is identical.
 
 ## 11. Repo layout sketch

@@ -1,7 +1,7 @@
 /* ESPlab firmware main — thin adapter: real radio in, real serial out,
  * the same tested core doing all the thinking.
  *
- * Flow: ESP-NOW datagrams -> glados_recv(); glados_tick() every loop;
+ * Flow: ESP-NOW datagrams -> gl_recv(); gl_tick() every loop;
  * UART lines -> gl_console(); console output -> UART.
  * MAC address is the board's ESPlab id — real hardware addresses. */
 #include <stdio.h>
@@ -14,7 +14,7 @@
 #include "esp_event.h"
 #include "nvs_flash.h"
 #include "driver/uart.h"
-#include "glados.h"
+#include "machine.h"
 
 static gl_node_t node;
 static gl_transport_t bus;
@@ -28,7 +28,7 @@ static uint64_t now_ms(void)
 static void espnow_recv_cb(const esp_now_recv_info_t *info, const uint8_t *data, int len)
 {
     /* hand straight to the core; it does its own validation */
-    glados_recv(&node, data, (size_t)len);
+    gl_recv(&node, data, (size_t)len);
 }
 
 static int now_send(gl_transport_t *t, const uint8_t peer[6],
@@ -59,7 +59,9 @@ void uart_print(void *ctx, const char *text);
 
 static void uart_console_task(void *arg)
 {
-    uint8_t line[1400];
+    /* frame submits carry up to ~5.6KB of hex (a 2.7KB RLE frame) —
+     * must match the host console buffer (11000) */
+    static uint8_t line[11000];
     size_t n = 0;
     for (;;) {
         uint8_t c;
@@ -92,8 +94,9 @@ void uart_print(void *ctx, const char *text)
 /* ---- app_main: bring up NVS, WiFi(radio), ESP-NOW, the core ---- */
 void app_main(void)
 {
-    /* console first so early messages are visible */
-    uart_driver_install(UART_NUM_0, 2048, 0, 0, NULL, 0);
+    /* console first so early messages are visible. RX ring must hold a
+     * full frame submit (~5.6KB hex) arriving in one burst. */
+    uart_driver_install(UART_NUM_0, 12288, 0, 0, NULL, 0);
     uart_print(NULL, "ESPlab booting...");
 
     if (nvs_flash_init() != ESP_OK) {
@@ -118,7 +121,7 @@ void app_main(void)
     bus.ctx = &bus;
     uint8_t mac[6];
     esp_read_mac(mac, ESP_MAC_WIFI_STA);
-    glados_init(&node, &bus, mac, ELP_CHIP_CLASSIC, 2, 290, 4, 0, 0);
+    gl_init(&node, &bus, mac, ELP_CHIP_CLASSIC, 2, 290, 4, 0, 0);
     uart_print(NULL, "ESPlab node up");
 
     xTaskCreate(uart_console_task, "console", 4096, NULL, 5, NULL);
@@ -126,7 +129,7 @@ void app_main(void)
     /* main loop: the core breathes here */
     for (;;) {
         bus.now_ms = now_ms();
-        glados_tick(&node);
+        gl_tick(&node);
         vTaskDelay(pdMS_TO_TICKS(10));   /* 100 ticks/sec, like the sim */
     }
 }

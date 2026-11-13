@@ -1,4 +1,4 @@
-/* ESPlab node core — see inc/glados.h.
+/* ESPlab node core — see inc/machine.h.
  *
  * Design rules:
  *  - One node = one computer's "core". The coordinator is just the core that
@@ -11,7 +11,7 @@
  *  - Never trust the radio: every inbound frame is length- and field-checked
  *    before it touches state.
  */
-#include "glados.h"
+#include "machine.h"
 #include "vm.h"
 #include <string.h>
 #include <stdio.h>
@@ -77,7 +77,7 @@ static int roster_upsert(gl_node_t *g, const uint8_t id[6])
 {
     int i = roster_find(g, id);
     if (i >= 0) return i;
-    if (g->roster_n >= GLADOS_MAX_NODES) return -1;
+    if (g->roster_n >= GL_MAX_NODES) return -1;
     i = g->roster_n++;
     memset(&g->roster[i], 0, sizeof(elp_node_t));
     memcpy(g->roster[i].id, id, 6);
@@ -347,7 +347,7 @@ static void job_setup_chunks(gl_job_t *j)
 
 static gl_job_t *job_alloc(gl_node_t *g, gl_taskkind_t kind, const char *name)
 {
-    if (g->jobs_n >= GLADOS_MAX_JOBS) {
+    if (g->jobs_n >= GL_MAX_JOBS) {
         /* table full: evict the oldest finished job; refuse if all running */
         int victim = -1;
         for (uint8_t i = 0; i < g->jobs_n; i++)
@@ -372,7 +372,7 @@ static uint16_t chunk_payload(const gl_job_t *j, uint32_t c,
 {
     uint16_t p = 0;
     if (cap < 64) return 0;
-    memcpy(out + p, j->name, GLADOS_NAME_MAX); p += GLADOS_NAME_MAX;
+    memcpy(out + p, j->name, GL_NAME_MAX); p += GL_NAME_MAX;
     ELP_PUT_U64(out + p, j->id); p += 8;
     ELP_PUT_U32(out + p, c); p += 4;
     out[p++] = (uint8_t)j->kind;
@@ -456,7 +456,7 @@ static void coord_result(gl_node_t *g, const uint8_t *body, size_t len)
     if (status == 0) {
         j->done_count++;
         /* keep the chunk's raw output (VM jobs deliver bytes, not numbers) */
-        if (out_len > GLADOS_CHUNK_OUT_MAX) out_len = GLADOS_CHUNK_OUT_MAX;
+        if (out_len > GL_CHUNK_OUT_MAX) out_len = GL_CHUNK_OUT_MAX;
         if (out_len) { memcpy(r->out, p, out_len); r->out_len = out_len; }
         if (out_len >= 4) {
             uint32_t val; ELP_GET_U32(p, val);
@@ -647,17 +647,17 @@ void worker_execute_and_deliver(gl_node_t *g, const uint8_t *body, size_t len)
 static gl_kvrec_t *kv_find(gl_node_t *g, const char *key)
 {
     for (uint8_t i = 0; i < g->kv_n; i++)
-        if (strncmp(g->kv[i].key, key, GLADOS_KV_KEY_MAX) == 0) return &g->kv[i];
+        if (strncmp(g->kv[i].key, key, GL_KV_KEY_MAX) == 0) return &g->kv[i];
     return NULL;
 }
 
 int gl_kv_put(gl_node_t *g, const char *key, const uint8_t *val, uint16_t len)
 {
-    if (!key || !*key || strlen(key) >= GLADOS_KV_KEY_MAX) return -1;
-    if (len > GLADOS_KV_VAL_MAX) return -1;
+    if (!key || !*key || strlen(key) >= GL_KV_KEY_MAX) return -1;
+    if (len > GL_KV_VAL_MAX) return -1;
     gl_kvrec_t *r = kv_find(g, key);
     if (!r) {
-        if (g->kv_n >= GLADOS_MAX_KV) return -1;
+        if (g->kv_n >= GL_MAX_KV) return -1;
         r = &g->kv[g->kv_n++];
         memset(r, 0, sizeof(*r));
         snprintf(r->key, sizeof(r->key), "%s", key);
@@ -681,7 +681,7 @@ int gl_kv_get(gl_node_t *g, const char *key, uint8_t *out, uint16_t *out_len)
 int gl_kv_del(gl_node_t *g, const char *key)
 {
     for (uint8_t i = 0; i < g->kv_n; i++) {
-        if (strncmp(g->kv[i].key, key, GLADOS_KV_KEY_MAX) == 0) {
+        if (strncmp(g->kv[i].key, key, GL_KV_KEY_MAX) == 0) {
             g->kv[i] = g->kv[g->kv_n - 1];
             g->kv_n--;
             return 0;
@@ -818,7 +818,7 @@ static void on_chunk(gl_node_t *g, const uint8_t *src, const uint8_t *body, size
     worker_execute_and_deliver(g, body, len);
 }
 
-void glados_recv(gl_node_t *g, const uint8_t *payload, size_t len)
+void gl_recv(gl_node_t *g, const uint8_t *payload, size_t len)
 {
     g->stat_rx++;
     if (len < GL_FRAME_HEADER || len > GL_MAX_MSG) { g->stat_drops++; return; }
@@ -852,7 +852,7 @@ void glados_recv(gl_node_t *g, const uint8_t *payload, size_t len)
 
 /* ===================== tick ===================== */
 
-void glados_tick(gl_node_t *g)
+void gl_tick(gl_node_t *g)
 {
     uint64_t now = now_ms(g);
 
@@ -954,7 +954,7 @@ void glados_tick(gl_node_t *g)
 
 /* ===================== lifecycle ===================== */
 
-void glados_init(gl_node_t *g, gl_transport_t *bus,
+void gl_init(gl_node_t *g, gl_transport_t *bus,
                  const uint8_t self_id[6],
                  uint8_t chipspec, uint8_t ncores,
                  uint32_t ram_kb, uint32_t flash_mb,
@@ -995,7 +995,7 @@ int gl_submit_hello(gl_node_t *g, uint64_t *job_id)
     gl_job_t *j = job_alloc(g, GL_TASK_HELLO, "hello");
     if (!j) return -1;
     j->nchunks = roster_alive_n(g) + 1;      /* every core reports, incl. us */
-    if (j->nchunks > GLADOS_MAX_CHUNKS) j->nchunks = GLADOS_MAX_CHUNKS;
+    if (j->nchunks > GL_MAX_CHUNKS) j->nchunks = GL_MAX_CHUNKS;
     j->params[0] = 1;
     j->params[1] = 0;
     j->params[2] = j->nchunks;
@@ -1014,7 +1014,7 @@ int gl_submit_search(gl_node_t *g, uint32_t lo, uint32_t hi,
     if (!j) return -1;
     uint32_t cores = roster_alive_n(g) + 1;
     uint32_t want = cores * 4;
-    if (want > GLADOS_MAX_CHUNKS) want = GLADOS_MAX_CHUNKS;
+    if (want > GL_MAX_CHUNKS) want = GL_MAX_CHUNKS;
     uint32_t span = hi - lo;
     if (want > span) want = span;
     j->nchunks = want ? want : 1;
@@ -1034,7 +1034,7 @@ int gl_submit_vm(gl_node_t *g, const uint8_t *code, uint16_t code_len,
 {
     if (g->role != GL_ROLE_COORD) return -1;
     if (code_len > VM_CODE_MAX || input_len > GL_VM_INPUT_MAX) return -1;
-    if (nchunks == 0 || nchunks > GLADOS_MAX_CHUNKS) return -1;
+    if (nchunks == 0 || nchunks > GL_MAX_CHUNKS) return -1;
     gl_job_t *j = job_alloc(g, GL_TASK_VM, "vm");
     if (!j) return -1;
     memcpy(j->vm_code, code, code_len);
@@ -1058,7 +1058,7 @@ int gl_submit_frame(gl_node_t *g, const uint8_t *code, uint16_t code_len,
 {
     if (g->role != GL_ROLE_COORD) return -1;
     if (code_len > VM_CODE_MAX || input_len > GL_VM_INPUT_MAX) return -1;
-    if (nchunks == 0 || nchunks > GLADOS_MAX_CHUNKS) return -1;
+    if (nchunks == 0 || nchunks > GL_MAX_CHUNKS) return -1;
     gl_job_t *j = job_alloc(g, GL_TASK_FRAME, "frame");
     if (!j) return -1;
     memcpy(j->vm_code, code, code_len);
