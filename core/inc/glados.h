@@ -19,8 +19,8 @@
 #include "vm.h"   /* VM_CODE_MAX, GL_VM_INPUT_MAX */
 
 #define GLADOS_MAX_NODES   16   /* roster capacity (boards + self) */
-#define GLADOS_MAX_JOBS    8    /* simultaneous jobs on the machine */
-#define GLADOS_MAX_CHUNKS  64   /* chunks per job */
+#define GLADOS_MAX_JOBS    4    /* simultaneous jobs on the machine (DRAM) */
+#define GLADOS_MAX_CHUNKS  16   /* chunks per job (DRAM: 4*16*256B outputs) */
 #define GLADOS_MAX_KV      128  /* kv records per storage node */
 #define GLADOS_KV_KEY_MAX  24
 #define GLADOS_KV_VAL_MAX  160
