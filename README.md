@@ -104,9 +104,12 @@ The full instruction set, sandbox rules, and worked examples are in the
 ## Real hardware
 
 The `firmware/` tree is a thin ESP-IDF adapter over the same portable core;
-CI builds it for real ESP32 targets on every push. Flashing is the same
-image for every board — the machine elects roles itself. USB flashing and
-OTA updates are the next milestones ([docs/MILESTONES.md](docs/MILESTONES.md)).
+CI builds it for real ESP32 targets on every push. The complete flashing
+guide — toolchain install, per-chip builds, serial ports, what the console
+should print, troubleshooting — is in
+**[docs/HARDWARE.md](docs/HARDWARE.md)**. One image for every board; roles
+(coordinator/worker) are elected at run time. USB flashing is documented
+there today; OTA is the next milestone ([docs/MILESTONES.md](docs/MILESTONES.md)).
 
 ## Related projects
 

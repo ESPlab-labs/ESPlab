@@ -1,4 +1,11 @@
-# ESP On Demand
+# ESP On Demand (in-tree service copy)
+
+**The service itself lives in its own repo:
+[TycoonCoder/ESP-On-Demand](https://github.com/TycoonCoder/ESP-On-Demand) —
+including the [end-to-end walkthrough](https://github.com/TycoonCoder/ESP-On-Demand/blob/main/QUICKSTART.md)
+(virtual boards, real boards, encoding a clip, playing video).**
+
+This is the in-tree copy of the docs for the machine's test surface.
 
 ![license](https://img.shields.io/badge/license-MIT-blue)
 ![requires](https://img.shields.io/badge/requires-ESPlab%20WebUI-red)
