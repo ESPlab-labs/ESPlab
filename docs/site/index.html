@@ -3,50 +3,151 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>ESPlab — documentation</title>
+<title>ESPlab — many boards, one computer</title>
+<meta name="description" content="ESPlab turns a pile of ESP32 boards into a single small computer: pooled CPU, pooled storage, a sandboxed task VM. Fully local — ESP-NOW only, no router, no cloud.">
 <style>
- body { font-family: Georgia, serif; background:#0d1117; color:#e6edf3;
-        margin:0 auto; max-width:860px; padding:2rem 1.4rem; line-height:1.65; }
- h1 { font-family: system-ui, sans-serif; font-size:1.7rem;
-      border-bottom:1px solid #30363d; padding-bottom:.4rem; }
- h1 span { color:#58a6ff; font-size:1rem; display:block; font-weight:400; }
- a { color:#58a6ff; text-decoration:none; }
- a:hover { text-decoration:underline; }
- .card { font-family: system-ui, sans-serif; background:#161b22;
-         border:1px solid #30363d; border-radius:8px; padding:1rem 1.2rem;
-         margin:1rem 0; }
- .card h2 { margin:.1rem 0 .3rem; font-size:1.1rem; }
- .card p { margin:.2rem 0; color:#c9d1d9; }
- footer { margin-top:3rem; color:#8b949e; font-size:.85rem; }
+ :root { --bg:#0b0f14; --card:#12181f; --line:#232c36; --txt:#e6edf3;
+         --dim:#8b98a5; --acc:#4fc3f7; --acc2:#3fb950; }
+ * { box-sizing:border-box; }
+ body { font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+        background:var(--bg); color:var(--txt); margin:0;
+        line-height:1.6; }
+ .wrap { max-width:980px; margin:0 auto; padding:0 1.4rem; }
+ header { padding:4.5rem 0 3rem; text-align:center;
+          background:radial-gradient(80% 100% at 50% 0%, #12212e 0%, var(--bg) 70%);
+          border-bottom:1px solid var(--line); }
+ h1 { font-size:2.1rem; margin:0 0 .4rem; letter-spacing:-.02em; }
+ h1 .lab { color:var(--acc); }
+ .tag { color:var(--dim); font-size:1.05rem; margin:0 0 1.6rem; }
+ .cta { display:flex; gap:.7rem; justify-content:center; flex-wrap:wrap; }
+ .btn { background:var(--acc); color:#04121c; font-weight:600;
+        padding:.65rem 1.3rem; border-radius:8px; text-decoration:none; }
+ .btn.ghost { background:transparent; color:var(--acc);
+              border:1px solid var(--acc); }
+ .btn:hover { filter:brightness(1.1); }
+ section { padding:2.6rem 0; }
+ h2 { font-size:1.35rem; margin:0 0 1rem; letter-spacing:-.01em; }
+ .grid { display:grid; grid-template-columns:repeat(3,1fr); gap:1rem; }
+ .card { background:var(--card); border:1px solid var(--line);
+         border-radius:12px; padding:1.2rem 1.3rem; display:block;
+         color:var(--txt); text-decoration:none; transition:border-color .15s; }
+ .card:hover { border-color:var(--acc); }
+ .card h3 { margin:.1rem 0 .4rem; font-size:1.02rem; color:var(--acc); }
+ .card p { margin:0; color:var(--dim); font-size:.9rem; }
+ .pill { display:inline-block; background:#0e2233; color:var(--acc);
+         border:1px solid #1c3a50; font-size:.72rem; padding:.1rem .55rem;
+         border-radius:99px; margin:.5rem .3rem 0 0; }
+ ul.feats { columns:2; gap:2rem; margin:.4rem 0 0; padding-left:1.2rem; }
+ ul.feats li { margin:.35rem 0; break-inside:avoid; }
+ pre { background:#05080c; border:1px solid var(--line); border-radius:10px;
+       padding:1rem 1.2rem; overflow-x:auto; font-size:.85rem; line-height:1.5; }
+ code { font-family: ui-monospace, 'Cascadia Code', Menlo, monospace; }
+ .note { color:var(--dim); font-size:.88rem; }
+ a { color:var(--acc); }
+ footer { border-top:1px solid var(--line); padding:1.6rem 0 2.4rem;
+          color:var(--dim); font-size:.85rem; }
+ @media (max-width:760px){ .grid{grid-template-columns:1fr;} ul.feats{columns:1;} }
 </style>
 </head>
 <body>
-<h1>ESPlab documentation <span>many boards, one computer</span></h1>
 
-<div class="card">
-<h2><a href="vm.html">The task VM</a></h2>
-<p>The machine's compute surface: instruction set, sandbox, the assembler,
-and two worked examples — including the bytecode that decodes video for
-ESP On Demand.</p>
+<header class="wrap">
+  <h1>ESPlab<span class="lab">Labs</span></h1>
+  <p class="tag">Many ESP32 boards, one computer. Pooled CPU, pooled storage,
+     a sandboxed task VM — fully local, ESP-NOW only.</p>
+  <div class="cta">
+    <a class="btn" href="https://github.com/esplab-labs/ESPlab">Get the machine</a>
+    <a class="btn ghost" href="vm.html">Read the VM docs</a>
+  </div>
+</header>
+
+<div class="wrap">
+
+<section>
+  <h2>The projects</h2>
+  <div class="grid">
+    <a class="card" href="https://github.com/esplab-labs/ESPlab">
+      <h3>ESPlab</h3>
+      <p>The machine. One firmware for every board; roles are elected, not
+         flashed. The machine chops the work; losing a board costs a retry,
+         not the job.</p>
+      <span class="pill">firmware</span><span class="pill">VM</span>
+      <span class="pill">virtual boards</span>
+    </a>
+    <a class="card" href="https://github.com/esplab-labs/ESPlab-WebUI">
+      <h3>ESPlab WebUI</h3>
+      <p>The machine's dashboard service. Boards, jobs, storage, log — in a
+         browser, driven through the same console a human types into.</p>
+      <span class="pill">service</span><span class="pill">stdlib-only</span>
+    </a>
+    <a class="card" href="https://github.com/esplab-labs/ESP-On-Demand">
+      <h3>ESP On Demand</h3>
+      <p>Video, decoded by the cluster. Every frame becomes 12 pixel-band
+         jobs; all boards decode in parallel. The homelab proof.</p>
+      <span class="pill">video</span><span class="pill">requires WebUI</span>
+    </a>
+  </div>
+</section>
+
+<section>
+  <h2>Why it's one computer, not a distributed system</h2>
+  <ul class="feats">
+    <li><b>One firmware.</b> Flash every board the same; a brain is elected
+        at boot. A newcomer joins in seconds, mixed chips included.</li>
+    <li><b>The machine chops the work.</b> Say "search 0 to 100000" — it
+        slices the range across boards itself.</li>
+    <li><b>Survives losing boards.</b> A dead worker's chunk is redone
+        elsewhere; if the brain dies, the machine re-elects.</li>
+    <li><b>Sandboxed tasks.</b> User programs run as bytecode in a VM with
+        hard time, memory, and output bounds. A bad task dies alone.</li>
+    <li><b>Deterministic.</b> Same code + same input = same bytes on every
+        chip, so failed chunks re-run anywhere without asking anyone.</li>
+    <li><b>No cloud, no router.</b> Boards talk point-to-point over
+        ESP-NOW. Your homelab stays your homelab.</li>
+  </ul>
+</section>
+
+<section>
+  <h2>Run it in one minute — no hardware needed</h2>
+  <p class="note">Every part of ESPlab is portable C, so a "board" can be a
+     Linux process. The prebuilt tools ship in the
+     <a href="https://github.com/esplab-labs/ESPlab/releases">release</a>:</p>
+  <pre><code>tar xzf esplab-host-tools-linux-x64.tar.gz
+./vboard --id 01 &amp; ./vboard --id 02 --chip s3 &amp; sleep 6
+# in another terminal, from the repo:
+python3 tools/webui/webui.py        # dashboard: http://localhost:8080
+# then, from any board console:
+submit search 0 100000 13           # the machine does the rest</code></pre>
+  <p class="note">Real boards: same firmware, <code>idf.py flash</code> —
+     flashing guide is in the
+     <a href="https://github.com/esplab-labs/ESPlab#readme">README</a>.</p>
+</section>
+
+<section>
+  <h2>Documentation</h2>
+  <div class="grid">
+    <a class="card" href="vm.html">
+      <h3>The task VM</h3>
+      <p>Instruction set, sandbox model, the assembler, and worked examples —
+         including the bytecode that decodes video.</p>
+    </a>
+    <a class="card" href="https://github.com/esplab-labs/ESPlab/blob/main/docs/ARCHITECTURE.md">
+      <h3>Architecture</h3>
+      <p>Election, scheduling, storage, fragmentation, and why the machine
+         is designed the way it is.</p>
+    </a>
+    <a class="card" href="https://github.com/esplab-labs/ESPlab/releases">
+      <h3>Releases</h3>
+      <p>Prebuilt host tools and firmware notes for every tagged version,
+         with checksums.</p>
+    </a>
+  </div>
+</section>
+
 </div>
-
-<div class="card">
-<h2><a href="https://github.com/TycoonCoder/ESPlab">Main repo — the machine</a></h2>
-<p>Architecture, firmware, the virtual board emulator, tests, and the CLI.
-Start with the README quickstart.</p>
-</div>
-
-<div class="card">
-<h2><a href="https://github.com/TycoonCoder/ESPlab-WebUI">ESPlab WebUI</a></h2>
-<p>The dashboard service that runs on the machine. Every cluster service
-speaks through it.</p>
-</div>
-
-<div class="card">
-<h2><a href="https://github.com/TycoonCoder/ESP-On-Demand">ESP On Demand</a></h2>
-<p>Video on the cluster — the pooled-compute proof. Requires the WebUI.</p>
-</div>
-
-<footer>MIT license · built for ESPlab v0.1</footer>
+<footer class="wrap">
+  ESPlab Labs · MIT license · built by Joshua Simon and one very patient
+  cluster of virtual boards.
+</footer>
 </body>
 </html>
