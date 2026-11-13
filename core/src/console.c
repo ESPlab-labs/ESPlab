@@ -111,10 +111,12 @@ static void print_jobs(gl_node_t *g, gl_print_fn out, void *ctx)
 
 void gl_console(gl_node_t *g, const char *input, gl_print_fn out, void *ctx)
 {
-    char buf[160];
-    char *argv[8];
+    /* `submit vm` carries code+input as hex: up to ~1200 chars. The console
+     * buffer must hold a full command, not just a human's fingers. */
+    static char buf[1400];
+    static char *argv[10];
     snprintf(buf, sizeof(buf), "%s", input ? input : "");
-    int n = split(buf, argv, 8);
+    int n = split(buf, argv, 10);
     char line[160];
     if (n == 0) return;
 
@@ -199,11 +201,37 @@ void gl_console(gl_node_t *g, const char *input, gl_print_fn out, void *ctx)
                 memset(body + 1, 0, 16);
                 send_frame_pub(g, g->coord_id, ELP_SUBMIT, body, 17);
                 out(ctx, "submitted to the coordinator");
+            } else if (n >= 5 && !strcmp(argv[1], "vm")) {
+                /* forward a full vm submit: kind(1) nchunks(4) codeLen(2)
+                 * inputLen(2) code input — the coordinator parses it */
+                size_t cl = strlen(argv[2]) / 2, il = strlen(argv[3]) / 2;
+                uint32_t nch = (uint32_t)strtoul(argv[4], NULL, 0);
+                if (cl == 0 || cl > VM_CODE_MAX || il > GL_VM_INPUT_MAX || nch == 0) {
+                    out(ctx, "bad vm submit");
+                    return;
+                }
+                static uint8_t body[400];
+                size_t p = 0;
+                body[p++] = (uint8_t)GL_TASK_VM;
+                ELP_PUT_U32(body + p, nch); p += 4;
+                ELP_PUT_U16(body + p, (uint16_t)cl); p += 2;
+                ELP_PUT_U16(body + p, (uint16_t)il); p += 2;
+                for (size_t i = 0; i < cl; i++) {
+                    char hb[3] = {argv[2][i*2], argv[2][i*2+1], 0};
+                    body[p++] = (uint8_t)strtoul(hb, NULL, 16);
+                }
+                for (size_t i = 0; i < il; i++) {
+                    char hb[3] = {argv[3][i*2], argv[3][i*2+1], 0};
+                    body[p++] = (uint8_t)strtoul(hb, NULL, 16);
+                }
+                gl_send_frame(g, g->coord_id, ELP_SUBMIT, body, p);
+                out(ctx, "submitted to the coordinator");
             } else {
-                out(ctx, "usage: submit hello | submit search <lo> <hi> <pred>");
+                out(ctx, "workers forward: submit hello | submit search <lo> <hi> <pred>");
             }
             return;
         }
+        /* coordinator-side submits */
         if (n >= 2 && !strcmp(argv[1], "hello")) {
             uint64_t id;
             if (gl_submit_hello(g, &id) == 0) {
@@ -225,7 +253,34 @@ void gl_console(gl_node_t *g, const char *input, gl_print_fn out, void *ctx)
             } else out(ctx, "submit failed (range empty?)");
             return;
         }
-        out(ctx, "usage: submit hello | submit search <lo> <hi> <pred>");
+        if (n >= 5 && !strcmp(argv[1], "vm")) {
+            /* submit vm <hexcode> <hexinput> <nchunks> — the task pipeline */
+            size_t cl = strlen(argv[2]) / 2, il = strlen(argv[3]) / 2;
+            uint32_t nchunks = (uint32_t)strtoul(argv[4], NULL, 0);
+            static uint8_t code[VM_CODE_MAX], input[GL_VM_INPUT_MAX];
+            if (cl == 0 || cl > sizeof(code) || il > sizeof(input) || nchunks == 0) {
+                out(ctx, "bad vm submit (code/input size or chunk count)");
+                return;
+            }
+            for (size_t i = 0; i < cl; i++) {
+                char b[3] = {argv[2][i * 2], argv[2][i * 2 + 1], 0};
+                code[i] = (uint8_t)strtoul(b, NULL, 16);
+            }
+            for (size_t i = 0; i < il; i++) {
+                char b[3] = {argv[3][i * 2], argv[3][i * 2 + 1], 0};
+                input[i] = (uint8_t)strtoul(b, NULL, 16);
+            }
+            uint64_t id;
+            if (gl_submit_vm(g, code, (uint16_t)cl, input, (uint16_t)il,
+                             nchunks, &id) == 0) {
+                snprintf(line, sizeof(line), "submitted vm job #%llu (%uB code, %uB input, %u chunks)",
+                         (unsigned long long)id, (unsigned)cl, (unsigned)il,
+                         (unsigned)nchunks);
+                out(ctx, line);
+            } else out(ctx, "submit failed (no coordinator? code/input limits?)");
+            return;
+        }
+        out(ctx, "usage: submit hello | submit search <lo> <hi> <pred> | submit vm <hexcode> <hexinput> <nchunks>");
         return;
     }
     if (!strcmp(argv[0], "put") && n >= 3) {

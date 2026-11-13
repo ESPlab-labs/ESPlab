@@ -1,4 +1,4 @@
-# ESP32 Cluster — Build order (milestones)
+# ESPlab — Build order (milestones)
 
 Each milestone ends with something you can *see working* on the real boards.
 Distances-to-goal are stated plainly.

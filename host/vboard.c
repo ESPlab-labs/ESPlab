@@ -245,7 +245,9 @@ int main(int argc, char **argv)
            id[0], id[1], id[2], id[3], id[4], id[5], cores, ram_kb, flash_mb);
 
     uint64_t next_tick = mono_ms();
-    char cmdline[256];
+    /* must hold a full `submit vm` command (code+input as hex ≈ 1.2 KB) —
+     * gl_console's buffer is 1400; keep them in sync */
+    char cmdline[1400];
     size_t cmdlen = 0;
     for (;;) {
         bus.now_ms = mono_ms();
@@ -272,6 +274,12 @@ int main(int argc, char **argv)
             if (select(1, &rf, NULL, NULL, &tv) > 0) {
                 ssize_t n = read(0, cmdline + cmdlen, sizeof(cmdline) - cmdlen - 1);
                 if (n > 0) {
+                    if (cmdlen + (size_t)n >= sizeof(cmdline)) {
+                        /* line longer than the buffer: report, don't hang */
+                        console_out(NULL, "console: line too long");
+                        cmdlen = 0;
+                        continue;
+                    }
                     cmdlen += (size_t)n;
                     cmdline[cmdlen] = 0;
                     char *nl = strchr(cmdline, '\n');

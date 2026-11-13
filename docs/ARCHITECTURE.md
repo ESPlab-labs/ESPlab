@@ -1,6 +1,6 @@
-# ESP32 Cluster — Architecture
+# ESPlab — Architecture
 
-Working title: **esp32-cluster** (real name TBD — see "Naming").
+*(Named ESPlab. The repo: github.com/TycoonCoder/ESPlab.)*
 
 ## 1. Vision
 
@@ -209,6 +209,4 @@ hardware; CI builds firmware + host tests on every push.
 
 ## 12. Naming
 
-Project needs a name before the GitHub release. Candidates: **hivelab**,
-**swarmcab** (no), **tinybeehive**, **espone** ("many boards, one computer"),
-**clusterbox**, or Joshua's own idea. Decide before M0's repo creation.
+**Decided: ESPlab.** Repo: github.com/TycoonCoder/ESPlab.

@@ -109,6 +109,16 @@ static uint32_t roster_alive_n(gl_node_t *g)
  *   frag header: 0xFF 0xFE tag(2) seq(1) count(1)
  * Every transport gets fragmentation for free because it lives here. */
 static void send_frame(gl_node_t *g, const uint8_t dst[6], uint8_t type,
+                       const uint8_t *body, size_t len);
+
+/* public wrapper (console submit-forwarding uses it) */
+void gl_send_frame(gl_node_t *g, const uint8_t dst[6], uint8_t type,
+                   const uint8_t *body, size_t len)
+{
+    send_frame(g, dst, type, body, len);
+}
+
+static void send_frame(gl_node_t *g, const uint8_t dst[6], uint8_t type,
                        const uint8_t *body, size_t len)
 {
     uint8_t buf[ELP_MAX_PAYLOAD];
@@ -680,6 +690,19 @@ static void coord_submit(gl_node_t *g, const uint8_t *body, size_t len)
         uint64_t id;
         if (gl_submit_hello(g, &id) == 0)
             log_add(g, "remote submit: hello #%llu", (unsigned long long)id);
+    } else if (kind == GL_TASK_VM && len >= 9) {
+        /* kind(1) nchunks(4) codeLen(2) inputLen(2) code input */
+        uint32_t nch; uint16_t cl2, il2;
+        ELP_GET_U32(body + 1, nch);
+        ELP_GET_U16(body + 5, cl2);
+        ELP_GET_U16(body + 7, il2);
+        if ((size_t)(9 + cl2 + il2) > len || cl2 == 0 || cl2 > VM_CODE_MAX ||
+            il2 > GL_VM_INPUT_MAX || nch == 0) { g->stat_drops++; return; }
+        uint64_t id;
+        if (gl_submit_vm(g, body + 9, cl2, body + 9 + cl2, il2, nch, &id) == 0)
+            log_add(g, "remote submit: vm %uB code, %uB input, %u chunks #%llu",
+                    (unsigned)cl2, (unsigned)il2, (unsigned)nch,
+                    (unsigned long long)id);
     } else if (kind == GL_TASK_SEARCH) {
         uint64_t id;
         if (gl_submit_search(g, b, c, (int32_t)a, &id) == 0)

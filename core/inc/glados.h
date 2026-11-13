@@ -226,6 +226,11 @@ int  gl_submit_vm(gl_node_t *g, const uint8_t *code, uint16_t code_len,
 int gl_job_find(gl_node_t *g, uint64_t job_id);
 const char *gl_role_name(gl_role_t r);
 
+/* send a message to one peer, fragmenting transparently if needed
+ * (exposed so console forwarding gets fragmentation for free) */
+void gl_send_frame(gl_node_t *g, const uint8_t dst[6], uint8_t type,
+                   const uint8_t *body, size_t len);
+
 /* VM chunk execution (exposed for the coordinator's self-work path) */
 void worker_execute_and_deliver(gl_node_t *g, const uint8_t *body, size_t len);
 
