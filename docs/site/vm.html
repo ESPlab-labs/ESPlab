@@ -29,7 +29,7 @@
 </head>
 <body>
 
-<h1>The ESPlab task VM <span>esplab-labs.github.io · the machine's compute surface</span></h1>
+<h1>The ESPlab task VM <span>esplab-labs.github.io · compute surface documentation</span></h1>
 
 <p style="font-family:system-ui,sans-serif"><a href="index.html">← esplab-labs.github.io</a> ·
 <a href="https://github.com/ESPlab-labs/ESPlab">repo</a> ·
@@ -37,12 +37,12 @@
 
 <p>ESPlab runs user work as <em>sandboxed bytecode tasks</em>. You write a
 small assembly program, assemble it to ESPlab bytecode (<code>vbasm</code>),
-and submit it to the machine. The machine chops the work into chunks, every
+and submit it to the cluster. The cluster splits the work into chunks; every
 board in the cluster executes the same task on its own slice of the input,
 and the results come back to the coordinator. One program, every chip —
 the bytecode is identical on an ESP32, an S3, a C3, or the virtual boards.</p>
 
-<div class="note">This page documents the VM itself. For the machine around
+<div class="note">This page documents the VM itself. For the cluster around
 it — election, scheduling, storage — see the
 <a href="https://github.com/ESPlab-labs/ESPlab">main repo</a>.</div>
 
@@ -56,7 +56,7 @@ it — election, scheduling, storage — see the
 <li><strong>a slice</strong> — <code>[lo, hi)</code>, the piece of the work
  space <em>this</em> chunk owns. In a <code>vm</code> job the slice is byte
  offsets of the input; in a <code>frame</code> job it is pixel indices of
- the frame. Ask the machine where you are with <code>lds</code>;</li>
+ the frame. Ask the VM where you are with <code>lds</code>;</li>
 <li><strong>an output buffer</strong> — 260 bytes per chunk. <code>emit</code>
  appends bytes; the coordinator keeps every chunk's output and the WebUI can
  reassemble them (that is how ESP On Demand gets frames back).</li>
@@ -99,7 +99,7 @@ you never compute those by hand; <code>vbasm</code> labels do it.</p>
 <tr><td><code>jz</code> / <code>jnz</code></td><td><code>rCond, label</code></td><td>jump if rCond == 0 / != 0</td></tr>
 <tr><td><code>call</code> / <code>ret</code></td><td><code>label</code> / —</td><td>subroutine call, 8-deep stack</td></tr>
 <tr><td><code>emit</code></td><td><code>rA</code></td><td>append rA's low byte to this chunk's output</td></tr>
-<tr><td><code>yield</code></td><td>—</td><td>pause; the machine resumes you (cooperative long tasks)</td></tr>
+<tr><td><code>yield</code></td><td>—</td><td>pause; the VM resumes you (cooperative long tasks)</td></tr>
 <tr><td><code>halt</code></td><td>—</td><td>finish cleanly</td></tr>
 <tr><td><code>fail</code></td><td>—</td><td>fault on purpose</td></tr>
 </table>
@@ -120,9 +120,9 @@ reserved as assembler scratch — never keep a live value there.</p>
 
 <h2 id="hello">4. A worked example: count the 'a's</h2>
 
-<p>The machine's "hello world" (from <code>examples/count_a.s</code>):
+<p>The VM's "hello world" (from <code>examples/count_a.s</code>):
 each chunk counts the 'a' bytes in its slice and emits the count as a
-4-byte little-endian value; the machine sums the chunks into the job's
+4-byte little-endian value; the coordinator sums the chunks into the job's
 aggregate.</p>
 
 <pre><code># count the 'a' bytes in this chunk's input slice
@@ -151,7 +151,7 @@ done:
   halt
 </code></pre>
 
-<p>Submit it and the machine does the rest:</p>
+<p>Submit it and the cluster does the rest:</p>
 
 <pre><code>submit vm &lt;hexcode&gt; &lt;hexinput&gt; &lt;nchunks&gt;    # from any console, any board
 jobs                                        # watch it run
@@ -167,19 +167,19 @@ job &lt;id&gt;                                    # per-chunk detail</code></pre
  against code length. There are no pointers in the ISA at all.</li>
 <li><strong>Bounded time</strong> — 5,000 instructions per timeslice, 40
  slices, then the task is killed with a fault and the chunk fails. A task
- that never halts costs the machine 200k instructions, once.</li>
+ that never halts costs the cluster 200k instructions, once.</li>
 <li><strong>Bounded output</strong> — the output buffer is fixed at 260
  bytes per chunk.</li>
 <li><strong>Determinism</strong> — no clocks, no randomness, no floats:
  chunk c of a job produces identical bytes no matter which board ran it.
- That is what lets the machine re-run a chunk after a board dies without
+ That is what lets the cluster re-run a chunk on another board after one
  asking anyone.</li>
 </ul>
 
 <h2 id="frame">6. Real example: ESP On Demand's decoder</h2>
 
 <p>The video service submits each frame of a clip as a <code>frame</code>
-job: the machine slices the frame's pixels into 12 horizontal bands
+job: the coordinator slices the frame's pixels into 12 horizontal bands
 (<code>[lo,hi)</code> = pixel indices), and <em>this</em> task — 34
 instructions — decodes a whole band, scanning the frame's run-length
 coding and emitting only its own pixels:</p>

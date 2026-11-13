@@ -68,22 +68,22 @@
   <div class="grid">
     <a class="card" href="https://github.com/ESPlab-labs/ESPlab">
       <h3>ESPlab</h3>
-      <p>The machine. One firmware for every board; roles are elected, not
-         flashed. The machine chops the work; losing a board costs a retry,
-         not the job.</p>
+      <p>The cluster firmware. One image for every board; roles are elected,
+         not flashed. Submit work to any board and it spreads across all of
+         them.</p>
       <span class="pill">firmware</span><span class="pill">VM</span>
       <span class="pill">virtual boards</span>
     </a>
     <a class="card" href="https://github.com/ESPlab-labs/ESPlab-WebUI">
       <h3>ESPlab WebUI</h3>
-      <p>The machine's dashboard service. Boards, jobs, storage, log — in a
+      <p>The cluster's dashboard. Boards, jobs, storage, log — in a
          browser, driven through the same console a human types into.</p>
       <span class="pill">service</span><span class="pill">stdlib-only</span>
     </a>
     <a class="card" href="https://github.com/ESPlab-labs/ESP-On-Demand">
       <h3>ESP On Demand</h3>
-      <p>Video, decoded by the cluster. Every frame becomes 12 pixel-band
-         jobs; all boards decode in parallel. The homelab proof.</p>
+      <p>A media server for ESPlab. Every frame becomes 12 pixel-band
+         jobs; all boards decode in parallel.</p>
       <span class="pill">video</span><span class="pill">requires WebUI</span>
     </a>
   </div>
@@ -92,16 +92,17 @@
 <section>
   <h2>Why it's one computer, not a distributed system</h2>
   <ul class="feats">
-    <li><b>One firmware.</b> Flash every board the same; a brain is elected
+    <li><b>One firmware.</b> Flash every board the same; roles are elected
         at boot. A newcomer joins in seconds, mixed chips included.</li>
-    <li><b>The machine chops the work.</b> Say "search 0 to 100000" — it
-        slices the range across boards itself.</li>
-    <li><b>Survives losing boards.</b> A dead worker's chunk is redone
-        elsewhere; if the brain dies, the machine re-elects.</li>
+    <li><b>Work spreads itself.</b> Submit "search 0 to 100000" from any
+        board and the cluster splits the range across all of them.</li>
+    <li><b>Losing a board isn't losing the job.</b> Unfinished work is
+        retried elsewhere; if the coordinator goes down, a new one is
+        elected.</li>
     <li><b>Sandboxed tasks.</b> User programs run as bytecode in a VM with
         hard time, memory, and output bounds. A bad task dies alone.</li>
     <li><b>Deterministic.</b> Same code + same input = same bytes on every
-        chip, so failed chunks re-run anywhere without asking anyone.</li>
+        chip, so any board can redo any piece of work.</li>
     <li><b>No cloud, no router.</b> Boards talk point-to-point over
         ESP-NOW. Your homelab stays your homelab.</li>
   </ul>
@@ -159,8 +160,7 @@ python3 tools/webui/webui.py        # dashboard: http://localhost:8080</code></p
 
 </div>
 <footer class="wrap">
-  ESPlab Labs · MIT license · built by Joshua Simon and one very patient
-  cluster of virtual boards.
+  ESPlab Labs · MIT license
 </footer>
 </body>
 </html>
