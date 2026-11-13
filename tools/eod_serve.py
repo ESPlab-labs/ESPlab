@@ -191,24 +191,32 @@ async function predecode() {
     if (frames[i]) continue;
     const f = await (await fetch('/api/frame?n=' + i)).json();
     if (f.pixels) frames[i] = new Uint8Array(f.pixels);
+    document.getElementById('stat').textContent =
+      `decoding ${i+1}/${info.frames}…`;
+    if (i === 0 && !started) {          // play as soon as the first frame lands
+      started = true; t0 = performance.now(); playing = true;
+    }
   }
-  document.getElementById('stat').textContent += ' · ready';
-  draw(0); t0 = performance.now(); playing = true;
+  document.getElementById('stat').textContent += ' · all frames decoded';
 }
+let started = false;
 function draw(i) {
-  const px = frames[i % info.frames];
+  i = i % info.frames;
+  while (i > 0 && !frames[i]) i--;      // newest decoded frame at/before playhead
+  const px = frames[i];
   if (!px) return;
   const img = ctx.createImageData(64, 48);
-  for (let p = 0; p < 64*48; p++) {
-    img.data[p*4]   = ((px[p] >> 4) & 3) * 85;
-    img.data[p*4+1] = ((px[p] >> 2) & 3) * 85;
-    img.data[p*4+2] = (px[p] & 3) * 85;
+  for (let p = 0; p < 64*48; p++) {     // pixels arrive as rgb triples
+    img.data[p*4]   = px[p*3];
+    img.data[p*4+1] = px[p*3+1];
+    img.data[p*4+2] = px[p*3+2];
     img.data[p*4+3] = 255;
   }
   ctx.putImageData(img, 0, 0);
+  const got = frames.reduce((a,f) => a + (f ? 1 : 0), 0);
   document.getElementById('stat').textContent =
-    `${info.frames} frames @ ${info.fps}fps · frame ${i % info.frames} · ` +
-    `decode ${info.decode_ms_avg} ms/frame`;
+    `${info.frames} frames @ ${info.fps}fps · frame ${i} · ` +
+    `${got}/${info.frames} decoded · ${info.decode_ms_avg} ms/frame`;
 }
 function tick() {
   if (playing) {
