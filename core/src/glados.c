@@ -246,6 +246,16 @@ static void election_start(gl_node_t *g, const char *why)
     send_frame(g, NULL, ELP_ELECTION, body, 16);
 }
 
+/* Ask this node to call an election now. The board with the best score
+ * (then boot id, then id) wins, so this is how a late-joining board takes
+ * the machine on merit — the dashboard uses it so its console can see the
+ * coordinator's job state. A no-op if we already run the machine. */
+void gl_force_election(gl_node_t *g)
+{
+    if (g->role == GL_ROLE_COORD) return;
+    election_start(g, "consolidation requested");
+}
+
 static void election_finish(gl_node_t *g)
 {
     uint8_t body[18];

@@ -56,6 +56,15 @@ class BoardConsole:
             except queue.Empty:
                 return
 
+    def take_the_machine(self):
+        """Call an election so this board (the dashboard's) wins on merit and
+        runs the machine. Without this, a late-joining dashboard board stays a
+        worker on an existing cluster and its console can't see job state —
+        which services like ESP On Demand depend on."""
+        time.sleep(7)          # boot + join the existing cluster (if any)
+        for line in self.cmd("elect"):
+            print("[webui board]", line)
+
 # ---------- console -> structured views ----------
 def parse_nodes(lines):
     nodes = []
@@ -90,7 +99,8 @@ def parse_status(lines):
 
 # ---------- machine singleton ----------
 board = BoardConsole(board_args)
-board.drain_silent(1.0)          # let it boot and join/win its election
+board.drain_silent(1.0)          # let it boot
+threading.Thread(target=board.take_the_machine, daemon=True).start()
 BOARD_URL_ID = "09"
 
 def machine_snapshot():

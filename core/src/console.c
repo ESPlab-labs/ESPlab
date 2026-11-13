@@ -135,6 +135,7 @@ void gl_console(gl_node_t *g, const char *input, gl_print_fn out, void *ctx)
         out(ctx, "  ls                  list the machine's disk");
         out(ctx, "  log                 recent machine log");
         out(ctx, "  id                  this console's node id");
+        out(ctx, "  elect               re-run the election (best board takes the machine)");
         return;
     }
     if (!strcmp(argv[0], "id")) {
@@ -142,6 +143,16 @@ void gl_console(gl_node_t *g, const char *input, gl_print_fn out, void *ctx)
                  g->self_id[0], g->self_id[1], g->self_id[2],
                  g->self_id[3], g->self_id[4], g->self_id[5]);
         out(ctx, line);
+        return;
+    }
+    if (!strcmp(argv[0], "elect")) {
+        /* re-run the election; the best-scored board takes the machine */
+        if (g->role == GL_ROLE_COORD) {
+            out(ctx, "already the coordinator");
+        } else {
+            gl_force_election(g);
+            out(ctx, "election called");
+        }
         return;
     }
     if (!strcmp(argv[0], "status")) {

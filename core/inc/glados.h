@@ -239,6 +239,10 @@ int gl_submit_frame(gl_node_t *g, const uint8_t *code, uint16_t code_len,
 int gl_job_find(gl_node_t *g, uint64_t job_id);
 const char *gl_role_name(gl_role_t r);
 
+/* call an election from the console: the best-scored board takes the
+ * machine (no-op if the caller already is the coordinator) */
+void gl_force_election(gl_node_t *g);
+
 /* send a message to one peer, fragmenting transparently if needed
  * (exposed so console forwarding gets fragmentation for free) */
 void gl_send_frame(gl_node_t *g, const uint8_t dst[6], uint8_t type,
