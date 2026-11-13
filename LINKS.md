@@ -8,7 +8,7 @@ itself**. Fully local — ESP-NOW only, no router, no cloud.
 
 - [README.md](README.md) — install → run → submit → verify
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — how the machine works
-- [VM documentation site](https://tycooncoder.github.io/ESPlab/) — the
+- [VM documentation site](https://esplab-labs.github.io/) — the
   task VM: instruction set, sandbox, assembler, worked examples
   (source in [docs/site](docs/site))
 
