@@ -420,6 +420,38 @@ static void coord_give_chunk(gl_node_t *g, const uint8_t worker[6])
         if (j->state != GL_JOB_RUNNING) continue;
         int c = job_pending_chunk(j);
         if (c < 0) continue;
+        if (j->kind == GL_TASK_FRAME) {
+            /* shared-input fast path: the frame's bytes went out once as
+             * ELP_SHARE; this assignment is a ~56-byte reference. A worker
+             * that missed the broadcast NAKs (ELP_SHARE_REQ) and gets a
+             * fresh share. */
+            if (g->shared_valid && g->shared.job_id == j->id) {
+                uint16_t p = 0;
+                memcpy(pay + p, j->name, GL_NAME_MAX); p += GL_NAME_MAX;
+                ELP_PUT_U64(pay + p, j->id); p += 8;
+                ELP_PUT_U32(pay + p, (uint32_t)c); p += 4;
+                pay[p++] = (uint8_t)j->kind;
+                ELP_PUT_U32(pay + p, j->chunks[c].lo); p += 4;
+                ELP_PUT_U32(pay + p, j->chunks[c].hi); p += 4;
+                for (int i = 0; i < 4; i++) {
+                    ELP_PUT_U32(pay + p, (uint32_t)j->params[i]); p += 4;
+                }
+                j->chunks[c].state = 1;
+                j->chunks[c].attempts++;
+                j->chunks[c].assigned_ms = now_ms(g);
+                memcpy(j->chunks[c].worker, worker, 6);
+                send_frame(g, worker, ELP_CHUNK, pay, p);
+                return;
+            }
+            uint16_t len = chunk_payload(j, (uint32_t)c, pay, sizeof(pay));
+            if (!len) continue;
+            j->chunks[c].state = 1;
+            j->chunks[c].attempts++;
+            j->chunks[c].assigned_ms = now_ms(g);
+            memcpy(j->chunks[c].worker, worker, 6);
+            send_frame(g, worker, ELP_CHUNK, pay, len);
+            return;
+        }
         uint16_t len = chunk_payload(j, (uint32_t)c, pay, sizeof(pay));
         if (!len) continue;
         j->chunks[c].state = 1;
@@ -532,7 +564,24 @@ static void coord_self_work(gl_node_t *g)
         if (j->state != GL_JOB_RUNNING) continue;
         int c = job_pending_chunk(j);
         if (c < 0) continue;
-        uint16_t len = chunk_payload(j, (uint32_t)c, pay, sizeof(pay));
+        uint16_t len;
+        if (j->kind == GL_TASK_FRAME && g->shared_valid &&
+            g->shared.job_id == j->id) {
+            /* self-work uses the same band-reference form as workers */
+            uint16_t p = 0;
+            memcpy(pay + p, j->name, GL_NAME_MAX); p += GL_NAME_MAX;
+            ELP_PUT_U64(pay + p, j->id); p += 8;
+            ELP_PUT_U32(pay + p, (uint32_t)c); p += 4;
+            pay[p++] = (uint8_t)j->kind;
+            ELP_PUT_U32(pay + p, j->chunks[c].lo); p += 4;
+            ELP_PUT_U32(pay + p, j->chunks[c].hi); p += 4;
+            for (int i = 0; i < 4; i++) {
+                ELP_PUT_U32(pay + p, (uint32_t)j->params[i]); p += 4;
+            }
+            len = p;
+        } else {
+            len = chunk_payload(j, (uint32_t)c, pay, sizeof(pay));
+        }
         if (!len) continue;
         j->chunks[c].state = 1;
         j->chunks[c].attempts++;
@@ -545,6 +594,51 @@ static void coord_self_work(gl_node_t *g)
 }
 
 /* ===================== worker side ===================== */
+
+/* run a band/chunk through the sandboxed VM (shared slice budget) */
+static uint8_t vm_exec(gl_node_t *g, uint8_t *code, uint16_t code_len,
+                       uint8_t *input, uint16_t input_len,
+                       uint32_t lo, uint32_t hi,
+                       uint8_t *out, uint16_t *out_len)
+{
+    (void)g;
+    vm_t vm;
+    vm_init(&vm, code, code_len, input, input_len, out, JOB_OUT_MAX,
+            (int32_t)lo, (int32_t)hi);
+    for (int slice = 0; slice < 40 && vm.status == VM_OK; slice++) {
+        vm_run(&vm, VM_CYCLES_PER_SLICE);
+        if (vm.halted) break;
+    }
+    /* sandbox bound: a task that never halted within its slice budget is
+     * killed here (bounded, and no false positives on long-running loops
+     * aligned to the timeslice) */
+    if (!vm.halted && vm.status == VM_OK) vm.status = VM_FAULT_STACK;
+    *out_len = vm.out_len;
+    return (vm.status == VM_OK) ? 0 : 2;
+}
+
+static void worker_deliver(gl_node_t *g, uint64_t job_id, uint32_t chunkno,
+                           uint8_t status, const uint8_t *out, uint16_t out_len)
+{
+    uint8_t rbuf[6 + 8 + 4 + 1 + 2 + JOB_OUT_MAX];
+    uint16_t rp = 0;
+    memcpy(rbuf + rp, g->self_id, 6); rp += 6;
+    ELP_PUT_U64(rbuf + rp, job_id); rp += 8;
+    ELP_PUT_U32(rbuf + rp, chunkno); rp += 4;
+    rbuf[rp++] = status;
+    ELP_PUT_U16(rbuf + rp, out_len); rp += 2;
+    memcpy(rbuf + rp, out, out_len); rp = (uint16_t)(rp + out_len);
+    if (g->asg_local) {
+        /* self-work: deliver straight to our own coordinator role */
+        g->asg_local = false;
+        coord_result(g, rbuf, rp);
+        return;
+    }
+    if (id_eq(g->coord_id, g->self_id))
+        coord_result(g, rbuf, rp);          /* loopback (should not happen) */
+    else if (!id_is_zero(g->coord_id))
+        send_frame(g, g->coord_id, ELP_RESULT, rbuf, rp);
+}
 
 /* execute a chunk and deliver the result (radio, or straight to ourselves
  * when this node is its own coordinator — the loopback shortcut) */
@@ -592,6 +686,38 @@ void worker_execute_and_deliver(gl_node_t *g, const uint8_t *body, size_t len)
             (unsigned long)g->ncores, (unsigned long)g->ram_kb,
             (unsigned long)g->flash_mb);
         if (out_len >= JOB_OUT_MAX) out_len = JOB_OUT_MAX - 1;
+    } else if (kind == GL_TASK_FRAME && a->input_len == 0) {
+        /* shared-input fast path: the assignment is a band reference; the
+         * bytes live in the share slot broadcast by the coordinator. */
+        if (g->shared_valid && g->shared.job_id == job_id) {
+            vm_t vm;
+            vm_init(&vm, g->shared.code, g->shared.code_len,
+                    g->shared.input, g->shared.input_len,
+                    out, JOB_OUT_MAX, (int32_t)a->lo, (int32_t)a->hi);
+            for (int slice = 0; slice < 40 && vm.status == VM_OK; slice++) {
+                vm_run(&vm, VM_CYCLES_PER_SLICE);
+                if (vm.halted) break;
+            }
+            if (!vm.halted && vm.status == VM_OK) vm.status = VM_FAULT_STACK;
+            status = (vm.status == VM_OK) ? 0 : 2;
+            out_len = vm.out_len;
+        } else {
+            /* missed the share broadcast: hold the assignment and wait for
+             * the re-broadcast (NAK below, backed off). The dispatch
+             * timeout is the backstop if the coordinator is gone. */
+            uint64_t now = now_ms(g);
+            if (now >= g->shared_next_req_ms && !id_is_zero(g->coord_id) &&
+                !id_eq(g->coord_id, g->self_id)) {
+                uint8_t req[8];
+                ELP_PUT_U64(req, job_id);
+                send_frame(g, g->coord_id, ELP_SHARE_REQ, req, 8);
+                g->shared_next_req_ms = now + 2000;
+            }
+            a->job_id = job_id;
+            a->chunk = chunkno;
+            g->asg_wait_share = true;
+            return;   /* keep asg_active; on_share runs the band */
+        }
     } else if (kind == GL_TASK_VM || kind == GL_TASK_FRAME) {
         ELP_GET_U16(body + p, a->code_len); p += 2;
         ELP_GET_U16(body + p, a->input_len); p += 2;
@@ -601,44 +727,14 @@ void worker_execute_and_deliver(gl_node_t *g, const uint8_t *body, size_t len)
         } else {
             memcpy(a->code, body + p, a->code_len); p = (uint16_t)(p + a->code_len);
             memcpy(a->input, body + p, a->input_len);
-            vm_t vm;
-            vm_init(&vm, a->code, a->code_len, a->input, a->input_len,
-                    out, JOB_OUT_MAX, (int32_t)a->lo, (int32_t)a->hi);
-            for (int slice = 0; slice < 40 && vm.status == VM_OK; slice++) {
-                vm_run(&vm, VM_CYCLES_PER_SLICE);
-                if (vm.halted) break;      /* finished cleanly: stop slicing */
-            }
-            /* sandbox bound: a task that never halted within its slice
-             * budget is killed here (bounded, and no false positives on
-             * long-running loops aligned to the timeslice) */
-            if (!vm.halted && vm.status == VM_OK) vm.status = VM_FAULT_STACK;
-            status = (vm.status == VM_OK) ? 0 : 2;
-            out_len = vm.out_len;
+            status = vm_exec(g, a->code, a->code_len, a->input, a->input_len,
+                             a->lo, a->hi, out, &out_len);
         }
     } else {
         status = 3;
     }
 
-    uint8_t rbuf[6 + 8 + 4 + 1 + 2 + JOB_OUT_MAX];
-    uint16_t rp = 0;
-    memcpy(rbuf + rp, g->self_id, 6); rp += 6;
-    ELP_PUT_U64(rbuf + rp, job_id); rp += 8;
-    ELP_PUT_U32(rbuf + rp, chunkno); rp += 4;
-    rbuf[rp++] = status;
-    ELP_PUT_U16(rbuf + rp, out_len); rp += 2;
-    memcpy(rbuf + rp, out, out_len); rp = (uint16_t)(rp + out_len);
-
-    if (g->asg_local) {
-        /* self-work: deliver straight to our own coordinator role */
-        g->asg_local = false;
-        g->asg_active = false;
-        coord_result(g, rbuf, rp);
-        return;
-    }
-    if (id_eq(g->coord_id, g->self_id))
-        coord_result(g, rbuf, rp);          /* loopback (should not happen) */
-    else if (!id_is_zero(g->coord_id))
-        send_frame(g, g->coord_id, ELP_RESULT, rbuf, rp);
+    worker_deliver(g, job_id, chunkno, status, out, out_len);
     g->asg_active = false;
 }
 
@@ -818,6 +914,65 @@ static void on_chunk(gl_node_t *g, const uint8_t *src, const uint8_t *body, size
     worker_execute_and_deliver(g, body, len);
 }
 
+/* coordinator -> all: this frame job's bytes, sent once per frame.
+ * A worker waiting for this share (asg_wait_share) runs its held band
+ * the moment the bytes land. */
+static void on_share(gl_node_t *g, const uint8_t *src, const uint8_t *body, size_t len)
+{
+    roster_touch(g, src);
+    if (g->role == GL_ROLE_COORD) return;      /* sender or split-brain guard */
+    if (len < 12) { g->stat_drops++; return; }
+    uint64_t job_id; uint16_t cl, il;
+    ELP_GET_U64(body, job_id);
+    ELP_GET_U16(body + 8, cl);
+    ELP_GET_U16(body + 10, il);
+    if (cl > VM_CODE_MAX || il > GL_VM_INPUT_MAX ||
+        len < (size_t)12 + cl + il) { g->stat_drops++; return; }
+    memcpy(g->shared.code, body + 12, cl);
+    memcpy(g->shared.input, body + 12 + cl, il);
+    g->shared.job_id = job_id;
+    g->shared.code_len = cl;
+    g->shared.input_len = il;
+    g->shared_valid = true;
+    g->shared_next_req_ms = now_ms(g) + 2000;  /* NAK backoff window */
+
+    if (g->asg_wait_share && g->asg.job_id == job_id) {
+        /* the band we were holding can run now */
+        uint8_t out[JOB_OUT_MAX];
+        uint16_t out_len = 0;
+        uint8_t status = vm_exec(g, g->shared.code, g->shared.code_len,
+                                 g->shared.input, g->shared.input_len,
+                                 g->asg.lo, g->asg.hi, out, &out_len);
+        g->asg_wait_share = false;
+        worker_deliver(g, g->asg.job_id, g->asg.chunk, status, out, out_len);
+        g->asg_active = false;
+    }
+}
+
+/* worker -> coordinator: I missed the share for this job, resend it */
+static void on_share_req(gl_node_t *g, const uint8_t *src, const uint8_t *body, size_t len)
+{
+    roster_touch(g, src);
+    if (g->role != GL_ROLE_COORD) return;
+    if (len < 8) { g->stat_drops++; return; }
+    uint64_t job_id; ELP_GET_U64(body, job_id);
+    if (!g->shared_valid || g->shared.job_id != job_id) return;
+    uint64_t now = now_ms(g);
+    if (now < g->shared_next_send_ms) return;  /* rate limit re-broadcasts */
+    g->shared_next_send_ms = now + 2000;
+    static uint8_t sh[10 + VM_CODE_MAX + GL_VM_INPUT_MAX];
+    uint16_t sp = 0;
+    ELP_PUT_U64(sh + sp, g->shared.job_id); sp += 8;
+    ELP_PUT_U16(sh + sp, g->shared.code_len); sp += 2;
+    ELP_PUT_U16(sh + sp, g->shared.input_len); sp += 2;
+    memcpy(sh + sp, g->shared.code, g->shared.code_len);
+    sp = (uint16_t)(sp + g->shared.code_len);
+    memcpy(sh + sp, g->shared.input, g->shared.input_len);
+    sp = (uint16_t)(sp + g->shared.input_len);
+    send_frame(g, NULL, ELP_SHARE, sh, sp);
+    log_add(g, "share re-broadcast (a worker missed it)");
+}
+
 void gl_recv(gl_node_t *g, const uint8_t *payload, size_t len)
 {
     g->stat_rx++;
@@ -844,6 +999,8 @@ void gl_recv(gl_node_t *g, const uint8_t *payload, size_t len)
     case ELP_CHUNK_REQ:  on_chunk_req(g, src); break;
     case ELP_SUBMIT:     if (g->role == GL_ROLE_COORD) coord_submit(g, body, blen); break;
     case ELP_CHUNK:      on_chunk(g, src, body, blen); break;
+    case ELP_SHARE:      on_share(g, src, body, blen); break;
+    case ELP_SHARE_REQ:  on_share_req(g, src, body, blen); break;
     case ELP_RESULT:     coord_result(g, body, blen); break;
     case ELP_RESULT_ACK: roster_touch(g, src); break;
     default: g->stat_drops++; break;
@@ -1074,6 +1231,25 @@ int gl_submit_frame(gl_node_t *g, const uint8_t *code, uint16_t code_len,
     if (job_id) *job_id = j->id;
     log_add(g, "job frame #%llu: %u chunks, %uB frame rle",
             (unsigned long long)j->id, nchunks, input_len);
+    /* broadcast the frame's bytes ONCE to everyone (fragmented over the
+     * radio like any big message). Band assignments then reference this
+     * share instead of re-sending the payload per band. Body:
+     * job_id(8) code_len(2) input_len(2) code input. */
+    static uint8_t sh[10 + VM_CODE_MAX + GL_VM_INPUT_MAX];
+    uint16_t sp = 0;
+    ELP_PUT_U64(sh + sp, j->id); sp += 8;
+    ELP_PUT_U16(sh + sp, code_len); sp += 2;
+    ELP_PUT_U16(sh + sp, input_len); sp += 2;
+    memcpy(sh + sp, code, code_len); sp = (uint16_t)(sp + code_len);
+    memcpy(sh + sp, input, input_len); sp = (uint16_t)(sp + input_len);
+    send_frame(g, NULL, ELP_SHARE, sh, sp);
+    memcpy(g->shared.code, code, code_len);
+    memcpy(g->shared.input, input, input_len);
+    g->shared.job_id = j->id;
+    g->shared.code_len = code_len;
+    g->shared.input_len = input_len;
+    g->shared_valid = true;
+    g->shared_next_send_ms = now_ms(g) + 2000;  /* re-broadcast rate limit */
     return 0;
 }
 

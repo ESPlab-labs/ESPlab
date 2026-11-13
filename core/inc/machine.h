@@ -90,6 +90,15 @@ typedef struct {
     uint64_t    next_poll_ms;   /* when the supervisor next checks liveness */
 } gl_job_t;
 
+/* ---- shared job input (broadcast once per frame job) ---- */
+typedef struct {
+    uint64_t job_id;
+    uint16_t code_len;
+    uint16_t input_len;
+    uint8_t  code[VM_CODE_MAX];
+    uint8_t  input[GL_VM_INPUT_MAX];
+} gl_shared_t;
+
 /* ---- worker-side execution ---- */
 typedef struct {
     uint64_t job_id;
@@ -157,6 +166,15 @@ typedef struct gl_node {
     bool     asg_active;
     bool     asg_local;         /* slot holds self-work (coordinator's own) */
     uint64_t asg_deadline_ms;   /* supervisor reassigns after this passes */
+
+    /* shared job input: the coordinator broadcasts a frame job's bytes once
+     * (ELP_SHARE); band assignments then reference them instead of carrying
+     * a copy. Workers run the band from this slot. */
+    gl_shared_t shared;
+    bool     shared_valid;
+    bool     asg_wait_share;      /* holding a band until its share arrives */
+    uint64_t shared_next_req_ms;  /* NAK backoff: when this worker may re-ask */
+    uint64_t shared_next_send_ms; /* coordinator: re-broadcast rate limit */
 
     /* local storage share */
     gl_kvrec_t kv[GL_MAX_KV];

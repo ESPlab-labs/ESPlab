@@ -64,9 +64,13 @@ static void uart_console_task(void *arg)
     static uint8_t line[11000];
     size_t n = 0;
     for (;;) {
-        uint8_t c;
-        int got = uart_read_bytes(UART_NUM_0, &c, 1, pdMS_TO_TICKS(20));
-        if (got == 1) {
+        /* bulk-read: one byte per loop with a delay would turn a 5.6KB
+         * frame submit into minutes of 5ms-per-byte trickle */
+        uint8_t tmp[256];
+        int got = uart_read_bytes(UART_NUM_0, tmp, sizeof(tmp),
+                                  pdMS_TO_TICKS(20));
+        for (int i = 0; i < got; i++) {
+            uint8_t c = tmp[i];
             if (c == '\n' || c == '\r') {
                 if (n) {
                     line[n] = 0;
@@ -80,7 +84,7 @@ static void uart_console_task(void *arg)
                 n = 0;
             }
         }
-        vTaskDelay(pdMS_TO_TICKS(5));
+        vTaskDelay(pdMS_TO_TICKS(2));
     }
 }
 
@@ -95,8 +99,13 @@ void uart_print(void *ctx, const char *text)
 void app_main(void)
 {
     /* console first so early messages are visible. RX ring must hold a
-     * full frame submit (~5.6KB hex) arriving in one burst. */
+     * full frame submit (~5.6KB hex) arriving in one burst; 921600 baud
+     * keeps a frame submit well under a second on the wire. */
     uart_driver_install(UART_NUM_0, 12288, 0, 0, NULL, 0);
+    uart_param_config(UART_NUM_0,
+        &(uart_config_t){ .baud_rate = 921600, .data_bits = UART_DATA_8_BITS,
+            .parity = UART_PARITY_DISABLE, .stop_bits = UART_STOP_BITS_1,
+            .flow_ctrl = UART_HW_FLOWCTRL_DISABLE, .source_clk = UART_SCLK_DEFAULT });
     uart_print(NULL, "ESPlab booting...");
 
     if (nvs_flash_init() != ESP_OK) {

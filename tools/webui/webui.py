@@ -26,7 +26,7 @@ class SerialConsole:
     """Talk to a real board's USB serial console (pyserial, optional dep)."""
     def __init__(self, port):
         import serial                      # pip install pyserial
-        self.s = serial.Serial(port, 115200, timeout=0.2)
+        self.s = serial.Serial(port, 921600, timeout=0.2)
         self.lock = threading.Lock()
 
     def cmd(self, command, wait=0.8):

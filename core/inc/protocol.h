@@ -33,6 +33,8 @@ typedef enum {
     ELP_UPDATE = 16,     /* supervisor -> node: change this setting */
     ELP_UPDATE_ACK = 17,
     ELP_BYE = 18,        /* graceful leave */
+    ELP_SHARE = 19,      /* coordinator -> all: shared job input (frame bytes) */
+    ELP_SHARE_REQ = 20,  /* worker -> coordinator: I missed the share, resend */
 } elp_type_t;
 
 /* ---- node descriptor (capability card) ---- */
