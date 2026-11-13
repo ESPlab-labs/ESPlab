@@ -96,9 +96,10 @@ static void print_jobs(gl_node_t *g, gl_print_fn out, void *ctx)
             gl_job_t *j = &g->jobs[i];
             static const char *st[] = {"running", "DONE", "FAILED"};
             static const char *kd[] = {"?", "hello", "search", "vm"};
-            snprintf(line, sizeof(line), "#%llu %-8s %-7s %s  %u/%u chunks agg=%u",
+            snprintf(line, sizeof(line), "#%llu %-8s %-7s %s  %lu/%lu chunks agg=%lu",
                      (unsigned long long)j->id, j->name, kd[j->kind & 3],
-                     st[j->state & 3], j->done_count, j->nchunks, j->aggregate);
+                     st[j->state & 3], (unsigned long)j->done_count,
+                     (unsigned long)j->nchunks, (unsigned long)j->aggregate);
             out(ctx, line);
         }
         return;
@@ -250,8 +251,9 @@ void gl_console(gl_node_t *g, const char *input, gl_print_fn out, void *ctx)
             int32_t pred = (int32_t)strtol(argv[4], NULL, 0);
             uint64_t id;
             if (gl_submit_search(g, lo, hi, pred, &id) == 0) {
-                snprintf(line, sizeof(line), "submitted search job #%llu (%u-%u, mult of %d)",
-                         (unsigned long long)id, lo, hi, pred);
+                snprintf(line, sizeof(line), "submitted search job #%llu (%lu-%lu, mult of %ld)",
+                         (unsigned long long)id, (unsigned long)lo,
+                         (unsigned long)hi, (long)pred);
                 out(ctx, line);
             } else out(ctx, "submit failed (range empty?)");
             return;
