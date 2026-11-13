@@ -356,13 +356,12 @@ static void test_vm_sandbox_kills_runaway(void)
     uint8_t out[JOB_OUT_MAX];
     vm_t vm;
     vm_init(&vm, code, n, NULL, 0, out, sizeof(out), 0, 0);
-    for (int slice = 0; slice < 8 && vm.status == VM_OK; slice++) {
-        uint32_t pc0 = vm.pc;
-        uint32_t y0 = vm_stats.yields;
+    for (int slice = 0; slice < 40 && vm.status == VM_OK; slice++) {
         vm_run(&vm, VM_CYCLES_PER_SLICE);
-        if (vm.status == VM_OK && slice >= 1 && vm.pc == pc0 && vm_stats.yields == y0)
-            vm.status = VM_FAULT_STACK;
+        if (vm.halted) break;
     }
+    /* the sandbox bound: a task that never halted in its slice budget */
+    if (!vm.halted && vm.status == VM_OK) vm.status = VM_FAULT_STACK;
     CHECK(vm.status == VM_FAULT_STACK, "runaway detected and killed");
     CHECK(vm.pc < 16, "pc stayed inside the code (no escape)");
 }
@@ -379,14 +378,14 @@ static void test_fragmentation_roundtrip(void)
     /* a VM job with max-size code+input: forces multi-fragment CHUNKs */
     uint8_t code[VM_CODE_MAX], input[GL_VM_INPUT_MAX];
     uint16_t clen = build_count_a(code);
-    uint16_t ilen = GL_VM_INPUT_MAX;   /* 192 bytes: chunk ~ 16+16+40+256+192 */
+    uint16_t ilen = GL_VM_INPUT_MAX;   /* 672 bytes: chunk ~ 16+16+40+672+code */
     for (int i = 0; i < ilen; i++) input[i] = 'a';
     uint64_t id;
     CHECK(gl_submit_vm(c, code, clen, input, ilen, 2, &id) == 0, "big vm job submitted");
     sim_run(8000);
     int ji = gl_job_find(c, id);
     CHECK(ji >= 0 && c->jobs[ji].state == GL_JOB_DONE, "fragmented job completed");
-    CHECK(c->jobs[ji].aggregate == 192, "aggregate correct across fragments");
+    CHECK(c->jobs[ji].aggregate == GL_VM_INPUT_MAX, "aggregate correct across fragments");
 }
 
 int main(void)

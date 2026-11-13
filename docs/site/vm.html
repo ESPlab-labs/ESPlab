@@ -1,0 +1,256 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ESPlab — the task VM</title>
+<style>
+ body { font-family: Georgia, 'Times New Roman', serif; background:#0d1117;
+        color:#e6edf3; margin:0 auto; max-width:860px; padding:2rem 1.4rem;
+        line-height:1.65; }
+ h1,h2,h3 { font-family: system-ui, sans-serif; line-height:1.25; }
+ h1 { font-size:1.7rem; border-bottom:1px solid #30363d; padding-bottom:.4rem; }
+ h1 span { color:#58a6ff; font-size:1rem; display:block; font-weight:400; }
+ h2 { font-size:1.2rem; margin-top:2.2rem; }
+ a { color:#58a6ff; }
+ code, pre { font-family: ui-monospace, 'Cascadia Code', Menlo, monospace;
+             font-size:.86em; }
+ code { background:#161b22; padding:.1em .35em; border-radius:4px; }
+ pre { background:#010409; border:1px solid #21262d; border-radius:8px;
+       padding:.9rem 1rem; overflow-x:auto; }
+ pre code { background:none; padding:0; }
+ table { border-collapse:collapse; font-size:.9rem; margin:1rem 0; }
+ td,th { border:1px solid #30363d; padding:.35rem .7rem; text-align:left; }
+ th { background:#161b22; }
+ .note { border-left:3px solid #58a6ff; padding:.2rem .9rem; color:#8b949e;
+         font-style:italic; }
+ footer { margin-top:3rem; color:#8b949e; font-size:.85rem; }
+</style>
+</head>
+<body>
+
+<h1>The ESPlab task VM <span>docs.esplab.dev · the machine's compute surface</span></h1>
+
+<p>ESPlab runs user work as <em>sandboxed bytecode tasks</em>. You write a
+small assembly program, assemble it to ESPlab bytecode (<code>vbasm</code>),
+and submit it to the machine. The machine chops the work into chunks, every
+board in the cluster executes the same task on its own slice of the input,
+and the results come back to the coordinator. One program, every chip —
+the bytecode is identical on an ESP32, an S3, a C3, or the virtual boards.</p>
+
+<div class="note">This page documents the VM itself. For the machine around
+it — election, scheduling, storage — see the
+<a href="https://github.com/TycoonCoder/ESPlab">main repo</a>.</div>
+
+<h2 id="mental-model">1. The mental model</h2>
+
+<p>A task is a function over a <em>slice</em>. The machine gives your task:</p>
+<ul>
+<li><strong>input</strong> — the same bytes for every chunk of a job
+ (a search predicate is derived from <code>lds</code>; a frame-decode task
+ gets the whole frame's RLE), up to 1,408 bytes;</li>
+<li><strong>a slice</strong> — <code>[lo, hi)</code>, the piece of the work
+ space <em>this</em> chunk owns. In a <code>vm</code> job the slice is byte
+ offsets of the input; in a <code>frame</code> job it is pixel indices of
+ the frame. Ask the machine where you are with <code>lds</code>;</li>
+<li><strong>an output buffer</strong> — 260 bytes per chunk. <code>emit</code>
+ appends bytes; the coordinator keeps every chunk's output and the WebUI can
+ reassemble them (that is how ESP On Demand gets frames back).</li>
+</ul>
+
+<p>Everything else is a 16-register machine: no floats, no pointers, no
+host calls. The same code and the same input produce the same result on
+every chip — that determinism is what makes cluster answers trustworthy.</p>
+
+<h2 id="machine">2. The machine model</h2>
+
+<table>
+<tr><th>resource</th><th>size</th><th>notes</th></tr>
+<tr><td>registers</td><td>16 × 32-bit</td><td><code>r0..r15</code>; <code>r7</code> is scratch (the assembler materializes immediates there)</td></tr>
+<tr><td>code</td><td>256 bytes</td><td>instructions are 4 bytes, so 64 instructions max</td></tr>
+<tr><td>input</td><td>1,408 bytes</td><td>read-only, byte-addressed</td></tr>
+<tr><td>scratch slots</td><td>3 × 256 B</td><td>byte arrays for <code>ld</code>/<code>st</code></td></tr>
+<tr><td>call stack</td><td>8 frames</td><td>for <code>call</code>/<code>ret</code></td></tr>
+<tr><td>output</td><td>260 bytes</td><td><code>emit</code> appends; excess is dropped, not fatal</td></tr>
+<tr><td>timeslice</td><td>5,000 instructions</td><td>40 slices (200k instructions) per chunk, then the sandbox kills the task</td></tr>
+</table>
+
+<h2 id="isa">3. Instruction set</h2>
+
+<p>One instruction = 4 bytes: <code>opcode, a, b, c</code>. Jumps take a
+signed 16-bit <em>instruction</em> offset in <code>b|c&lt;&lt;8</code> — but
+you never compute those by hand; <code>vbasm</code> labels do it.</p>
+
+<table>
+<tr><th>mnemonic</th><th>operands</th><th>effect</th></tr>
+<tr><td><code>loadi</code></td><td><code>rD, imm16</code></td><td>rD = imm (unsigned 16-bit)</td></tr>
+<tr><td><code>mov</code></td><td><code>rD, rA</code></td><td>rD = rA</td></tr>
+<tr><td><code>add sub mul div mod and or xor shl shr</code></td><td><code>rD, rA, rB</code></td><td>rD = rA ⊕ rB (div/mod by zero faults; shifts use rB &amp; 31)</td></tr>
+<tr><td><code>cmp</code></td><td><code>rD, rA, rB</code></td><td>rD = −1 / 0 / +1 as rA &lt; / = / &gt; rB</td></tr>
+<tr><td><code>ldv</code></td><td><code>rD, rA</code></td><td>rD = input[rA] (byte)</td></tr>
+<tr><td><code>lds</code></td><td><code>rD, 0|1</code></td><td>rD = slice lo (0) or hi (1) — the "where am I" syscall</td></tr>
+<tr><td><code>ld</code></td><td><code>rD, slot, off</code></td><td>read scratch slot</td></tr>
+<tr><td><code>st</code></td><td><code>rS, slot, off</code></td><td>write scratch slot</td></tr>
+<tr><td><code>jmp</code></td><td><code>label</code></td><td>unconditional jump</td></tr>
+<tr><td><code>jz</code> / <code>jnz</code></td><td><code>rCond, label</code></td><td>jump if rCond == 0 / != 0</td></tr>
+<tr><td><code>call</code> / <code>ret</code></td><td><code>label</code> / —</td><td>subroutine call, 8-deep stack</td></tr>
+<tr><td><code>emit</code></td><td><code>rA</code></td><td>append rA's low byte to this chunk's output</td></tr>
+<tr><td><code>yield</code></td><td>—</td><td>pause; the machine resumes you (cooperative long tasks)</td></tr>
+<tr><td><code>halt</code></td><td>—</td><td>finish cleanly</td></tr>
+<tr><td><code>fail</code></td><td>—</td><td>fault on purpose</td></tr>
+</table>
+
+<p><strong>Comparison idiom.</strong> <code>cmp</code> yields −1/0/+1, so
+"jump if less-than" is written as:</p>
+
+<pre><code>  cmp   r5, r0, r2       # r5 = (r0 &lt; r2) ? -1 : (r0 == r2) ? 0 : 1
+  add   r5, r5, 1        # 0 only when r0 &lt; r2
+  jnz   r5, not_less</code></pre>
+
+<p>Equality alone is just <code>cmp</code> + <code>jz</code>.</p>
+
+<p><strong>Immediates in ALU ops.</strong> The ISA takes registers only;
+<code>vbasm</code> silently materializes <code>add r3, r3, 1</code> as
+<code>loadi r7, 1; add r3, r3, r7</code>. That is why <code>r7</code> is
+reserved as assembler scratch — never keep a live value there.</p>
+
+<h2 id="hello">4. A worked example: count the 'a's</h2>
+
+<p>The machine's "hello world" (from <code>examples/count_a.s</code>):
+each chunk counts the 'a' bytes in its slice and emits the count as a
+4-byte little-endian value; the machine sums the chunks into the job's
+aggregate.</p>
+
+<pre><code># count the 'a' bytes in this chunk's input slice
+  lds   r0, 0            # r0 = slice lo (where my input slice starts)
+  lds   r1, 1            # r1 = slice hi (where it ends)
+  loadi r2, 'a'
+  loadi r3, 0
+loop:
+  cmp  r4, r0, r1        # r4 = (r0 &lt; slice_hi)?
+  jz   r4, done
+  ldv  r5, r0            # r5 = input[r0]
+  cmp  r6, r5, r2
+  jnz  r6, skip
+  add  r3, r3, 1
+skip:
+  add  r0, r0, 1
+  jmp  loop
+done:
+  emit r3                # count byte 0 (LSB)
+  shr  r4, r3, 8
+  emit r4                # byte 1
+  shr  r4, r3, 16
+  emit r4                # byte 2
+  shr  r4, r3, 24
+  emit r4                # byte 3 (MSB)
+  halt
+</code></pre>
+
+<p>Submit it and the machine does the rest:</p>
+
+<pre><code>submit vm &lt;hexcode&gt; &lt;hexinput&gt; &lt;nchunks&gt;    # from any console, any board
+jobs                                        # watch it run
+job &lt;id&gt;                                    # per-chunk detail</code></pre>
+
+<h2 id="sand">5. The sandbox</h2>
+
+<p>Tasks are untrusted by construction:</p>
+<ul>
+<li><strong>No memory escape</strong> — <code>ldv</code> is bounds-checked
+ against the real input length; <code>ld</code>/<code>st</code> are
+ bounds-checked against the 3 scratch slots; jump targets are checked
+ against code length. There are no pointers in the ISA at all.</li>
+<li><strong>Bounded time</strong> — 5,000 instructions per timeslice, 40
+ slices, then the task is killed with a fault and the chunk fails. A task
+ that never halts costs the machine 200k instructions, once.</li>
+<li><strong>Bounded output</strong> — the output buffer is fixed at 260
+ bytes per chunk.</li>
+<li><strong>Determinism</strong> — no clocks, no randomness, no floats:
+ chunk c of a job produces identical bytes no matter which board ran it.
+ That is what lets the machine re-run a chunk after a board dies without
+ asking anyone.</li>
+</ul>
+
+<h2 id="frame">6. Real example: ESP On Demand's decoder</h2>
+
+<p>The video service submits each frame of a clip as a <code>frame</code>
+job: the machine slices the frame's pixels into 12 horizontal bands
+(<code>[lo,hi)</code> = pixel indices), and <em>this</em> task — 34
+instructions — decodes a whole band, scanning the frame's run-length
+coding and emitting only its own pixels:</p>
+
+<pre><code>  lds   r6, 0            # r6 = lo = first pixel of my band
+  lds   r2, 1            # r2 = hi = one past my last pixel
+  loadi r0, 0            # ABSOLUTE pixel cursor (runs can straddle bands)
+  loadi r1, 16           # pairs start at input[16]
+scan:
+  cmp   r5, r0, r2       # whole band decoded?
+  add   r5, r5, 1
+  jnz   r5, done
+  ldv   r5, r1           # r5 = cnt byte
+  add   r1, r1, 1
+  ldv   r4, r1           # r4 = palette index
+  add   r1, r1, 1        # r1 = next pair
+  shr   r3, r5, 1
+  add   r3, r3, 1        # r3 = run length
+emit_loop:
+  cmp   r5, r0, r2       # pixel cursor past my band?
+  add   r5, r5, 1
+  jnz   r5, next_pair
+  cmp   r5, r0, r6       # pixel cursor before my band?
+  add   r5, r5, 1
+  jz    r5, skip_pix     # pre-band: walk the run without emitting
+  emit  r4
+skip_pix:
+  add   r0, r0, 1
+  sub   r3, r3, 1
+  jnz   r3, emit_loop
+next_pair:
+  jmp   scan
+done:
+  halt
+</code></pre>
+
+<p>Two lessons are baked into that program, both learned the hard way:</p>
+<ul>
+<li><strong>The cursor is absolute.</strong> A run can straddle your band's
+ start; starting the cursor at <code>lo</code> shifts every run boundary
+ after it and corrupts the band. Walk from 0, emit only what's yours.</li>
+<li><strong>Pair cursors advance by exactly 2.</strong> The read of the
+ count byte and the index byte each advance once — a stray extra
+ <code>add</code> reads the next pair's bytes as data and faults bands
+ that reach the end of input.</li>
+</ul>
+
+<h2 id="vbasm">7. Assembling: vbasm</h2>
+
+<pre><code>./build/vbasm examples/eod_decode.s -o eod_decode.bin
+# eod_decode.bin: 34 instructions, 136 bytes</code></pre>
+
+<p><code>vbasm</code> gives you <code>label:</code> definitions and
+label-resolved branches (forward references included), <code>'c'</code>
+character literals, decimal/hex immediates, and comments with <code>#</code>
+or <code>;</code>. Hand-computing jump offsets is exactly how the first
+decoder got an infinite loop — use the labels.</p>
+
+<h2 id="debug">8. Debugging a task</h2>
+
+<ul>
+<li><code>job &lt;id&gt;</code> from any console: chunk states, attempts,
+ output size, duration.</li>
+<li><code>jobdump &lt;id&gt;</code>: every chunk's raw output bytes in hex —
+ diff against what you expected.</li>
+<li><code>tools/eod_bandtest</code> (build with <code>make
+ build/eod_bandtest</code>): runs your task against every band of a frame
+ <em>on the host</em>, printing per-band status and output. Loop on your
+ laptop, not on the cluster.</li>
+<li><code>core/tests/vmdebug</code>: single-step tracing for pure-VM
+ problems (jump math, register lifecycle).</li>
+</ul>
+
+<footer>ESPlab — many boards, one computer.
+<a href="https://github.com/TycoonCoder/ESPlab">github.com/TycoonCoder/ESPlab</a>
+· MIT license · docs built for the v0.1 VM (16 regs, 4-byte instructions).</footer>
+</body>
+</html>

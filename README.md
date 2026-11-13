@@ -66,6 +66,12 @@ See the whole machine in a browser — boards, jobs, storage, machine log — an
 submit work through it. This is the proof that ESPlab runs the kind of things
 homelabs run: the dashboard is itself a service *on* the machine.
 
+The WebUI is now its own repo: [TycoonCoder/ESPlab-WebUI](https://github.com/TycoonCoder/ESPlab-WebUI)
+(this copy stays in-tree as the in-repo service). On top of it runs
+**[ESP On Demand](https://github.com/TycoonCoder/ESP-On-Demand)** — video
+decoded by the whole cluster, every frame split across the boards.
+Docs: [the VM and the machine](https://tycooncoder.github.io/ESPlab/).
+
 ### Writing your own tasks (the VM)
 
 ```

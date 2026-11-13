@@ -2,9 +2,10 @@
 """ESPlab web UI — the dashboard service that runs on the machine itself.
 
 On real hardware this is served by the coordinator board from pooled flash
-(M6); on a dev machine (and tonight, as proof) it fronts one board's serial
-console. Same HTTP surface either way: you point a browser at the machine
-and see the whole cluster — nodes, jobs, storage — and can drive it.
+(M6); on a dev machine it fronts one board's serial console. Same HTTP
+surface either way: you point a browser at the machine and see the whole
+cluster — nodes, jobs, storage — and can drive it. ESP On Demand (the video
+service) runs on top of this UI and its frame API.
 
 Stdlib only: no pip, no framework, runs on anything."""
 import json, os, subprocess, threading, queue, time
@@ -14,10 +15,9 @@ from urllib.parse import urlparse, parse_qs
 ROOT = os.path.dirname(os.path.abspath(__file__)) + "/../.."
 VB = ROOT + "/build/vboard"
 PORT = int(os.environ.get("ESPLAB_WEB_PORT", "8080"))
+EOD_URL = os.environ.get("ESPLAB_EOD_URL", "")   # ESP On Demand base, optional
 
 # ---------- the board this service runs "on" ----------
-# A real deployment: the board's UART. Here: a vboard process's console.
-# The service is the machine's front door either way.
 board_args = ["--id", "09", "--chip", "s3", "--cores", "2", "--ram", "512",
               "--flash", "8", "--console"]
 
@@ -56,7 +56,7 @@ class BoardConsole:
             except queue.Empty:
                 return
 
-# ---------- console -> structured views (parsers stay dumb on purpose) ----------
+# ---------- console -> structured views ----------
 def parse_nodes(lines):
     nodes = []
     for l in lines:
@@ -99,6 +99,30 @@ def machine_snapshot():
     jobs = parse_jobs(board.cmd("jobs"))
     log = board.cmd("log")
     return {"status": st, "nodes": nodes, "jobs": jobs, "log": log}
+
+# ---------- ESP On Demand frame plumbing ----------
+def parse_jobdump(lines):
+    """jobdump output -> {chunk_index: hex_string}"""
+    chunks = {}
+    for l in lines:
+        if l.startswith("chunk ") and "incomplete" not in l:
+            f = l.split(maxsplit=2)
+            if len(f) >= 3:
+                chunks[int(f[1])] = f[2]
+    return chunks
+
+def eod_get_frame(job_id):
+    d = parse_jobdump(board.cmd(f"jobdump {job_id}", wait=1.2))
+    if not d:
+        return None
+    keys = sorted(d)
+    nchunks = keys[-1] + 1
+    if len(d) != nchunks:
+        return {"error": f"incomplete frame: {len(d)}/{nchunks} chunks"}
+    pix = bytearray()
+    for k in keys:
+        pix += bytes.fromhex(d[k])
+    return {"nchunks": nchunks, "pixels": bytes(pix)}
 
 # ---------- the web service ----------
 PAGE = """<!doctype html>
@@ -164,7 +188,7 @@ async function refresh() {
    <h2>jobs</h2><div class="card"><table>
      <tr><th>#</th><th>name</th><th>kind</th><th>state</th><th>chunks</th></tr>
      ${jobs||'<tr><td colspan=5>no jobs</td></tr>'}</table></div>
-   <h2>machine log</h2><pre>${(d.log||[]).join('\n')||'—'}</pre>`;
+   <h2>machine log</h2><pre>${(d.log||[]).join('\\n')||'—'}</pre>`;
 }
 async function job(kind) {
   const body = kind==='hello' ? {kind:'hello'}
@@ -188,7 +212,9 @@ async function kvget() {
   document.getElementById('out').textContent = r.result;
 }
 refresh(); setInterval(refresh, 3000);
-</script></body></html>"""
+</script>""" + (
+ f'<p><a href="{EOD_URL}/">ESP On Demand →</a></p>' if EOD_URL else ""
+) + """</body></html>"""
 
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, *a):  # quiet
@@ -217,6 +243,12 @@ class Handler(BaseHTTPRequestHandler):
             k = parse_qs(u.query).get("k", [""])[0]
             lines = board.cmd(f"get {k}") if k else ["?"]
             self._json({"result": "\n".join(lines) or "(no output)"})
+        elif u.path == "/api/frame":
+            q = parse_qs(u.query)
+            job_id = q.get("job", [""])[0]
+            if not job_id.isdigit():
+                self._json({"error": "job id required"}, 400); return
+            self._json(eod_get_frame(job_id) or {"error": "no output yet"})
         elif u.path == "/api/cmd":   # raw power escape hatch
             c = parse_qs(u.query).get("c", [""])[0]
             self._json({"result": board.cmd(c)})

@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ESPlab — documentation</title>
+<style>
+ body { font-family: Georgia, serif; background:#0d1117; color:#e6edf3;
+        margin:0 auto; max-width:860px; padding:2rem 1.4rem; line-height:1.65; }
+ h1 { font-family: system-ui, sans-serif; font-size:1.7rem;
+      border-bottom:1px solid #30363d; padding-bottom:.4rem; }
+ h1 span { color:#58a6ff; font-size:1rem; display:block; font-weight:400; }
+ a { color:#58a6ff; text-decoration:none; }
+ a:hover { text-decoration:underline; }
+ .card { font-family: system-ui, sans-serif; background:#161b22;
+         border:1px solid #30363d; border-radius:8px; padding:1rem 1.2rem;
+         margin:1rem 0; }
+ .card h2 { margin:.1rem 0 .3rem; font-size:1.1rem; }
+ .card p { margin:.2rem 0; color:#c9d1d9; }
+ footer { margin-top:3rem; color:#8b949e; font-size:.85rem; }
+</style>
+</head>
+<body>
+<h1>ESPlab documentation <span>many boards, one computer</span></h1>
+
+<div class="card">
+<h2><a href="vm.html">The task VM</a></h2>
+<p>The machine's compute surface: instruction set, sandbox, the assembler,
+and two worked examples — including the bytecode that decodes video for
+ESP On Demand.</p>
+</div>
+
+<div class="card">
+<h2><a href="https://github.com/TycoonCoder/ESPlab">Main repo — the machine</a></h2>
+<p>Architecture, firmware, the virtual board emulator, tests, and the CLI.
+Start with the README quickstart.</p>
+</div>
+
+<div class="card">
+<h2><a href="https://github.com/TycoonCoder/ESPlab-WebUI">ESPlab WebUI</a></h2>
+<p>The dashboard service that runs on the machine. Every cluster service
+speaks through it.</p>
+</div>
+
+<div class="card">
+<h2><a href="https://github.com/TycoonCoder/ESP-On-Demand">ESP On Demand</a></h2>
+<p>Video on the cluster — the pooled-compute proof. Requires the WebUI.</p>
+</div>
+
+<footer>MIT license · built for ESPlab v0.1</footer>
+</body>
+</html>

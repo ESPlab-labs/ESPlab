@@ -178,6 +178,7 @@ uint8_t vm_run(vm_t *v, uint32_t cycles)
             return v->status;
         case OP_YIELD:
             vm_stats.yields++;
+            v->pc = next;       /* advance past the yield before re-entry */
             return v->status;   /* caller refills cycles and re-enters */
         default:
             vm_fault(v, VM_FAULT_BADOP);

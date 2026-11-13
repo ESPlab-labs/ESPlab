@@ -203,6 +203,10 @@ int main(int argc, char **argv)
             int v = parse_imm16(tok[2], ln + 1);
             b = (uint8_t)(v & 0xFF);
             c = (uint8_t)((v >> 8) & 0xFF);
+        } else if (want == 1 && !strcmp(op, "emit")) {
+            a = (uint8_t)parse_reg(tok[1], ln + 1);
+        } else if (want == 0) {
+            /* nop/halt/yield/fail: no operands to parse */
         } else {
             int va = parse_alu_operand(tok[1], ln + 1);
             int vb2 = parse_alu_operand(tok[2], ln + 1);

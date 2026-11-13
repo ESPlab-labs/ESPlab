@@ -66,7 +66,7 @@ typedef struct {
 #define ELP_CAP_STORE       (1u << 3)
 
 /* ---- limits and constants ---- */
-#define JOB_OUT_MAX 200
+#define JOB_OUT_MAX 260
 
 /* ---- payload structs ---- */
 typedef struct {

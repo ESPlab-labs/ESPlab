@@ -95,9 +95,9 @@ static void print_jobs(gl_node_t *g, gl_print_fn out, void *ctx)
         for (int i = 0; i < g->jobs_n; i++) {
             gl_job_t *j = &g->jobs[i];
             static const char *st[] = {"running", "DONE", "FAILED"};
-            static const char *kd[] = {"?", "hello", "search", "vm"};
+            static const char *kd[] = {"?", "hello", "search", "vm", "frame"};
             snprintf(line, sizeof(line), "#%llu %-8s %-7s %s  %lu/%lu chunks agg=%lu",
-                     (unsigned long long)j->id, j->name, kd[j->kind & 3],
+                     (unsigned long long)j->id, j->name, kd[j->kind & 7],
                      st[j->state & 3], (unsigned long)j->done_count,
                      (unsigned long)j->nchunks, (unsigned long)j->aggregate);
             out(ctx, line);
@@ -114,7 +114,7 @@ void gl_console(gl_node_t *g, const char *input, gl_print_fn out, void *ctx)
 {
     /* `submit vm` carries code+input as hex: up to ~1200 chars. The console
      * buffer must hold a full command, not just a human's fingers. */
-    static char buf[1400];
+    static char buf[6000];   /* frame submits (esp on demand) carry ~2.6KB hex */
     static char *argv[10];
     snprintf(buf, sizeof(buf), "%s", input ? input : "");
     int n = split(buf, argv, 10);
@@ -175,6 +175,12 @@ void gl_console(gl_node_t *g, const char *input, gl_print_fn out, void *ctx)
             return;
         }
         gl_job_t *j = &g->jobs[ji];
+        {
+            uint64_t dur = (j->finished_ms ? j->finished_ms : g->bus->now_ms)
+                           - j->started_ms;
+            snprintf(line, sizeof(line), "  took %lu ms", (unsigned long)dur);
+            out(ctx, line);
+        }
         for (uint32_t c = 0; c < j->nchunks && c < 16; c++) {
             static const char *cs[] = {"pending", "assigned", "done", "failed"};
             snprintf(line, sizeof(line), "  chunk %-2lu [%lu,%lu)  %s",
@@ -184,6 +190,42 @@ void gl_console(gl_node_t *g, const char *input, gl_print_fn out, void *ctx)
             out(ctx, line);
         }
         if (j->nchunks > 16) out(ctx, "  ...");
+        if (j->kind == GL_TASK_VM) {
+            uint32_t total = 0;
+            for (uint32_t c = 0; c < j->nchunks; c++) total += j->chunks[c].out_len;
+            snprintf(line, sizeof(line), "  output: %lu bytes (binary, kept per chunk)",
+                     (unsigned long)total);
+            out(ctx, line);
+        }
+        return;
+    }
+    if (!strcmp(argv[0], "jobdump") && n >= 2) {
+        /* ESP On Demand: raw per-chunk output, hex lines, in chunk order.
+         * The web service concatenates; the browser renders pixels. */
+        uint64_t id = strtoull(argv[1], NULL, 0);
+        int ji = gl_job_find(g, id);
+        if (ji < 0) { out(ctx, "no such job"); return; }
+        gl_job_t *j = &g->jobs[ji];
+        for (uint32_t c = 0; c < j->nchunks; c++) {
+            if (j->chunks[c].state != 2 || j->chunks[c].out_len == 0) {
+                snprintf(line, sizeof(line), "chunk %lu incomplete", (unsigned long)c);
+                out(ctx, line);
+                continue;
+            }
+            for (uint16_t i = 0; i < j->chunks[c].out_len; i += 32) {
+                char hex[2 * 32 + 1];
+                size_t o = 0;
+                uint16_t end = (uint16_t)(i + 32);
+                if (end > j->chunks[c].out_len) end = j->chunks[c].out_len;
+                for (uint16_t k = i; k < end; k++) {
+                    hex[o++] = "0123456789abcdef"[j->chunks[c].out[k] >> 4];
+                    hex[o++] = "0123456789abcdef"[j->chunks[c].out[k] & 15];
+                }
+                hex[o] = 0;
+                snprintf(line, sizeof(line), "chunk %lu %s", (unsigned long)c, hex);
+                out(ctx, line);
+            }
+        }
         return;
     }
     if (!strcmp(argv[0], "submit")) {
@@ -229,6 +271,31 @@ void gl_console(gl_node_t *g, const char *input, gl_print_fn out, void *ctx)
                     body[p++] = (uint8_t)strtoul(hb, NULL, 16);
                 }
                 gl_send_frame(g, g->coord_id, ELP_SUBMIT, body, p);
+                out(ctx, "submitted to the coordinator");
+            } else if (n >= 5 && !strcmp(argv[1], "frame")) {
+                /* forward a frame submit: kind(1) nchunks(4) codeLen(2)
+                 * inputLen(2) code input — GL_TASK_FRAME on the wire */
+                size_t cl = strlen(argv[2]) / 2, il = strlen(argv[3]) / 2;
+                uint32_t nch = (uint32_t)strtoul(argv[4], NULL, 0);
+                if (cl == 0 || cl > VM_CODE_MAX || il > GL_VM_INPUT_MAX || nch == 0) {
+                    out(ctx, "bad frame submit");
+                    return;
+                }
+                static uint8_t fbody[1100];
+                size_t fp = 0;
+                fbody[fp++] = (uint8_t)GL_TASK_FRAME;
+                ELP_PUT_U32(fbody + fp, nch); fp += 4;
+                ELP_PUT_U16(fbody + fp, (uint16_t)cl); fp += 2;
+                ELP_PUT_U16(fbody + fp, (uint16_t)il); fp += 2;
+                for (size_t i = 0; i < cl; i++) {
+                    char hb[3] = {argv[2][i*2], argv[2][i*2+1], 0};
+                    fbody[fp++] = (uint8_t)strtoul(hb, NULL, 16);
+                }
+                for (size_t i = 0; i < il; i++) {
+                    char hb[3] = {argv[3][i*2], argv[3][i*2+1], 0};
+                    fbody[fp++] = (uint8_t)strtoul(hb, NULL, 16);
+                }
+                gl_send_frame(g, g->coord_id, ELP_SUBMIT, fbody, fp);
                 out(ctx, "submitted to the coordinator");
             } else {
                 out(ctx, "workers forward: submit hello | submit search <lo> <hi> <pred>");
@@ -285,7 +352,34 @@ void gl_console(gl_node_t *g, const char *input, gl_print_fn out, void *ctx)
             } else out(ctx, "submit failed (no coordinator? code/input limits?)");
             return;
         }
-        out(ctx, "usage: submit hello | submit search <lo> <hi> <pred> | submit vm <hexcode> <hexinput> <nchunks>");
+        if (n >= 5 && !strcmp(argv[1], "frame")) {
+            /* submit frame <hexcode> <hexframe> <nchunks> — ESP On Demand */
+            size_t cl = strlen(argv[2]) / 2, il = strlen(argv[3]) / 2;
+            uint32_t nchunks = (uint32_t)strtoul(argv[4], NULL, 0);
+            static uint8_t code[VM_CODE_MAX], input[GL_VM_INPUT_MAX];
+            if (cl == 0 || cl > sizeof(code) || il > sizeof(input) || nchunks == 0) {
+                out(ctx, "bad frame submit (code/frame size or chunk count)");
+                return;
+            }
+            for (size_t i = 0; i < cl; i++) {
+                char b[3] = {argv[2][i * 2], argv[2][i * 2 + 1], 0};
+                code[i] = (uint8_t)strtoul(b, NULL, 16);
+            }
+            for (size_t i = 0; i < il; i++) {
+                char b[3] = {argv[3][i * 2], argv[3][i * 2 + 1], 0};
+                input[i] = (uint8_t)strtoul(b, NULL, 16);
+            }
+            uint64_t id;
+            if (gl_submit_frame(g, code, (uint16_t)cl, input, (uint16_t)il,
+                                nchunks, &id) == 0) {
+                snprintf(line, sizeof(line), "submitted frame job #%llu (%uB code, %uB rle, %u chunks)",
+                         (unsigned long long)id, (unsigned)cl, (unsigned)il,
+                         (unsigned)nchunks);
+                out(ctx, line);
+            } else out(ctx, "submit failed (no coordinator? code/frame limits?)");
+            return;
+        }
+        out(ctx, "usage: submit hello | submit search <lo> <hi> <pred> | submit vm <hexcode> <hexinput> <nchunks> | submit frame <hexcode> <hexframe> <nchunks>");
         return;
     }
     if (!strcmp(argv[0], "put") && n >= 3) {

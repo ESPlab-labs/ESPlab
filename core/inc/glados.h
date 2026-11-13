@@ -24,8 +24,9 @@
 #define GLADOS_MAX_KV      128  /* kv records per storage node */
 #define GLADOS_KV_KEY_MAX  24
 #define GLADOS_KV_VAL_MAX  160
+#define GLADOS_CHUNK_OUT_MAX 256  /* per-chunk output kept by the coordinator */
 #define GLADOS_NAME_MAX    16
-#define GL_MAX_MSG         640  /* max reassembled message (VM chunks fit) */
+#define GL_MAX_MSG         2600 /* max reassembled message (frame forwards) */
 #define GL_NODE_TIMEOUT_MS 6000 /* peer silent this long = down */
 #define GL_FRAME_HEADER    10   /* ver(1) type(1) src(6) len(2) */
 #define GL_FRAG_HEADER     15   /* magic(2) tag(2) seq(1) count(1) src(6) type(1) len(2) */
@@ -49,6 +50,7 @@ typedef enum {
     GL_TASK_HELLO = 1,      /* each core reports in; result = its card */
     GL_TASK_SEARCH = 2,     /* chunk = [lo,hi): count values passing pred */
     GL_TASK_VM = 3,         /* chunk = VM program + input slice */
+    GL_TASK_FRAME = 4,      /* chunk = rows [lo,hi) of one video frame (VM) */
 } gl_taskkind_t;
 
 typedef enum {
@@ -64,6 +66,8 @@ typedef struct {
     uint8_t  attempts;
     uint8_t  worker[6];     /* who has it (assigned/done) */
     uint64_t assigned_ms;
+    uint8_t  out[GLADOS_CHUNK_OUT_MAX];  /* this chunk's raw output (VM) */
+    uint16_t out_len;
 } gl_chunkrec_t;
 
 typedef struct {
@@ -80,6 +84,8 @@ typedef struct {
     uint8_t     vm_input[GL_VM_INPUT_MAX];
     uint16_t    vm_input_len;
     uint32_t    input_total;
+    uint64_t    started_ms;   /* wall duration for the console/webui */
+    uint64_t    finished_ms;
     gl_chunkrec_t chunks[GLADOS_MAX_CHUNKS];
     uint64_t    next_poll_ms;   /* when the supervisor next checks liveness */
 } gl_job_t;
@@ -219,9 +225,16 @@ int  gl_submit_search(gl_node_t *g, uint32_t lo, uint32_t hi,
                       int32_t pred, uint64_t *job_id);
 
 /* introspection for tests and consoles */
-int  gl_submit_vm(gl_node_t *g, const uint8_t *code, uint16_t code_len,
-                  const uint8_t *input, uint16_t input_len, uint32_t nchunks,
-                  uint64_t *job_id);
+int gl_submit_vm(gl_node_t *g, const uint8_t *code, uint16_t code_len,
+                 const uint8_t *input, uint16_t input_len, uint32_t nchunks,
+                 uint64_t *job_id);
+
+/* ESP On Demand: one video frame as a job. Chunks = pixel bands via the
+ * normal [lo,hi) chunking (lo=0, hi=rows*cols); every chunk gets the whole
+ * frame's RLE as its VM input and emits its band's palette indices. */
+int gl_submit_frame(gl_node_t *g, const uint8_t *code, uint16_t code_len,
+                    const uint8_t *input, uint16_t input_len, uint32_t nchunks,
+                    uint64_t *job_id);
 
 int gl_job_find(gl_node_t *g, uint64_t job_id);
 const char *gl_role_name(gl_role_t r);

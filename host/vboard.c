@@ -17,7 +17,13 @@
 #include <netinet/in.h>
 #include <time.h>
 
-#define VB_PORT     7777
+/* group port can be overridden so parallel test clusters don't collide
+ * with a live demo cluster (ESPLAB_VB_PORT env) */
+static int vb_port(void)
+{
+    const char *e = getenv("ESPLAB_VB_PORT");
+    return e ? atoi(e) : 7777;
+}
 #define VB_MGROUP   "239.255.77.88"
 #define VB_MAX_MTU  224            /* mirrors the ESP-NOW radio limit */
 
@@ -104,7 +110,7 @@ static int vb_broadcast(gl_transport_t *t, const uint8_t *payload, size_t len)
     struct sockaddr_in all;
     memset(&all, 0, sizeof(all));
     all.sin_family = AF_INET;
-    all.sin_port = htons(VB_PORT);
+    all.sin_port = htons(vb_port());
     inet_pton(AF_INET, VB_MGROUP, &all.sin_addr);
     sendto(v->fd, payload, len, 0, (struct sockaddr *)&all, sizeof(all));
     return 0;
@@ -200,7 +206,7 @@ int main(int argc, char **argv)
     struct sockaddr_in maddr;
     memset(&maddr, 0, sizeof(maddr));
     maddr.sin_family = AF_INET;
-    maddr.sin_port = htons(VB_PORT);
+    maddr.sin_port = htons(vb_port());
     maddr.sin_addr.s_addr = htonl(INADDR_ANY);
     if (bind(fd_m, (struct sockaddr *)&maddr, sizeof(maddr)) < 0) {
         perror("bind (another vboard already owns the group port?)");
@@ -246,8 +252,8 @@ int main(int argc, char **argv)
 
     uint64_t next_tick = mono_ms();
     /* must hold a full `submit vm` command (code+input as hex ≈ 1.2 KB) —
-     * gl_console's buffer is 1400; keep them in sync */
-    char cmdline[1400];
+     * gl_console's buffer is 6000; keep them in sync */
+    char cmdline[6000];
     size_t cmdlen = 0;
     for (;;) {
         bus.now_ms = mono_ms();

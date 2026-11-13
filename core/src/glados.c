@@ -337,13 +337,23 @@ static void job_setup_chunks(gl_job_t *j)
 
 static gl_job_t *job_alloc(gl_node_t *g, gl_taskkind_t kind, const char *name)
 {
-    if (g->jobs_n >= GLADOS_MAX_JOBS) return NULL;
+    if (g->jobs_n >= GLADOS_MAX_JOBS) {
+        /* table full: evict the oldest finished job; refuse if all running */
+        int victim = -1;
+        for (uint8_t i = 0; i < g->jobs_n; i++)
+            if (g->jobs[i].state != GL_JOB_RUNNING) { victim = i; break; }
+        if (victim < 0) return NULL;
+        for (uint8_t i = (uint8_t)victim; i + 1 < g->jobs_n; i++)
+            g->jobs[i] = g->jobs[i + 1];
+        g->jobs_n--;
+    }
     gl_job_t *j = &g->jobs[g->jobs_n++];
     memset(j, 0, sizeof(*j));
     j->id = ++g->next_jobid;
     j->kind = kind;
     snprintf(j->name, sizeof(j->name), "%s", name ? name : "job");
     j->state = GL_JOB_RUNNING;
+    j->started_ms = now_ms(g);
     return j;
 }
 
@@ -359,7 +369,7 @@ static uint16_t chunk_payload(const gl_job_t *j, uint32_t c,
     ELP_PUT_U32(out + p, j->chunks[c].lo); p += 4;
     ELP_PUT_U32(out + p, j->chunks[c].hi); p += 4;
     for (int i = 0; i < 4; i++) { ELP_PUT_U32(out + p, (uint32_t)j->params[i]); p += 4; }
-    if (j->kind == GL_TASK_VM) {
+    if (j->kind == GL_TASK_VM || j->kind == GL_TASK_FRAME) {
         ELP_PUT_U16(out + p, j->vm_code_len); p += 2;
         ELP_PUT_U16(out + p, j->vm_input_len); p += 2;
         if ((uint32_t)p + j->vm_code_len + j->vm_input_len > cap) return 0;
@@ -385,6 +395,7 @@ static void job_check_done(gl_node_t *g, gl_job_t *j)
     }
     if (any_open) return;
     j->state = any_failed ? GL_JOB_FAILED : GL_JOB_DONE;
+    j->finished_ms = now_ms(g);
     log_add(g, "job %s %s: %lu/%lu chunks ok, agg=%lu",
             j->name, (j->state == GL_JOB_DONE) ? "DONE" : "FAILED",
             (unsigned long)j->done_count, (unsigned long)j->nchunks,
@@ -434,6 +445,9 @@ static void coord_result(gl_node_t *g, const uint8_t *body, size_t len)
     memcpy(r->worker, from, 6);
     if (status == 0) {
         j->done_count++;
+        /* keep the chunk's raw output (VM jobs deliver bytes, not numbers) */
+        if (out_len > GLADOS_CHUNK_OUT_MAX) out_len = GLADOS_CHUNK_OUT_MAX;
+        if (out_len) { memcpy(r->out, p, out_len); r->out_len = out_len; }
         if (out_len >= 4) {
             uint32_t val; ELP_GET_U32(p, val);
             if (j->kind == GL_TASK_SEARCH) {
@@ -568,7 +582,7 @@ void worker_execute_and_deliver(gl_node_t *g, const uint8_t *body, size_t len)
             (unsigned long)g->ncores, (unsigned long)g->ram_kb,
             (unsigned long)g->flash_mb);
         if (out_len >= JOB_OUT_MAX) out_len = JOB_OUT_MAX - 1;
-    } else if (kind == GL_TASK_VM) {
+    } else if (kind == GL_TASK_VM || kind == GL_TASK_FRAME) {
         ELP_GET_U16(body + p, a->code_len); p += 2;
         ELP_GET_U16(body + p, a->input_len); p += 2;
         if (a->code_len > VM_CODE_MAX || a->input_len > GL_VM_INPUT_MAX ||
@@ -580,19 +594,14 @@ void worker_execute_and_deliver(gl_node_t *g, const uint8_t *body, size_t len)
             vm_t vm;
             vm_init(&vm, a->code, a->code_len, a->input, a->input_len,
                     out, JOB_OUT_MAX, (int32_t)a->lo, (int32_t)a->hi);
-            for (int slice = 0; slice < 8 && vm.status == VM_OK; slice++) {
-                uint32_t pc0 = vm.pc;
-                uint32_t y0 = vm_stats.yields;
+            for (int slice = 0; slice < 40 && vm.status == VM_OK; slice++) {
                 vm_run(&vm, VM_CYCLES_PER_SLICE);
                 if (vm.halted) break;      /* finished cleanly: stop slicing */
-                /* runaway guard: two consecutive slices with no yield and
-                 * no pc movement = a task that refuses to cooperate */
-                if (vm.status == VM_OK && slice >= 1 &&
-                    vm.pc == pc0 && vm_stats.yields == y0) {
-                    vm.status = VM_FAULT_STACK;
-                    break;
-                }
             }
+            /* sandbox bound: a task that never halted within its slice
+             * budget is killed here (bounded, and no false positives on
+             * long-running loops aligned to the timeslice) */
+            if (!vm.halted && vm.status == VM_OK) vm.status = VM_FAULT_STACK;
             status = (vm.status == VM_OK) ? 0 : 2;
             out_len = vm.out_len;
         }
@@ -696,7 +705,7 @@ static void coord_submit(gl_node_t *g, const uint8_t *body, size_t len)
         uint64_t id;
         if (gl_submit_hello(g, &id) == 0)
             log_add(g, "remote submit: hello #%llu", (unsigned long long)id);
-    } else if (kind == GL_TASK_VM && len >= 9) {
+    } else if ((kind == GL_TASK_VM || kind == GL_TASK_FRAME) && len >= 9) {
         /* kind(1) nchunks(4) codeLen(2) inputLen(2) code input */
         uint32_t nch; uint16_t cl2, il2;
         ELP_GET_U32(body + 1, nch);
@@ -705,8 +714,12 @@ static void coord_submit(gl_node_t *g, const uint8_t *body, size_t len)
         if ((size_t)(9 + cl2 + il2) > len || cl2 == 0 || cl2 > VM_CODE_MAX ||
             il2 > GL_VM_INPUT_MAX || nch == 0) { g->stat_drops++; return; }
         uint64_t id;
-        if (gl_submit_vm(g, body + 9, cl2, body + 9 + cl2, il2, nch, &id) == 0)
-            log_add(g, "remote submit: vm %luB code, %luB input, %lu chunks #%llu",
+        int rc = (kind == GL_TASK_FRAME)
+            ? gl_submit_frame(g, body + 9, cl2, body + 9 + cl2, il2, nch, &id)
+            : gl_submit_vm(g, body + 9, cl2, body + 9 + cl2, il2, nch, &id);
+        if (rc == 0)
+            log_add(g, "remote submit: %s %luB code, %luB input, %lu chunks #%llu",
+                    (kind == GL_TASK_FRAME) ? "frame" : "vm",
                     (unsigned long)cl2, (unsigned long)il2, (unsigned long)nch,
                     (unsigned long long)id);
     } else if (kind == GL_TASK_SEARCH) {
@@ -1026,6 +1039,31 @@ int gl_submit_vm(gl_node_t *g, const uint8_t *code, uint16_t code_len,
     if (job_id) *job_id = j->id;
     log_add(g, "job vm #%llu: %u chunks, %u code bytes",
             (unsigned long long)j->id, nchunks, code_len);
+    return 0;
+}
+
+int gl_submit_frame(gl_node_t *g, const uint8_t *code, uint16_t code_len,
+                    const uint8_t *input, uint16_t input_len, uint32_t nchunks,
+                    uint64_t *job_id)
+{
+    if (g->role != GL_ROLE_COORD) return -1;
+    if (code_len > VM_CODE_MAX || input_len > GL_VM_INPUT_MAX) return -1;
+    if (nchunks == 0 || nchunks > GLADOS_MAX_CHUNKS) return -1;
+    gl_job_t *j = job_alloc(g, GL_TASK_FRAME, "frame");
+    if (!j) return -1;
+    memcpy(j->vm_code, code, code_len);
+    j->vm_code_len = code_len;
+    memcpy(j->vm_input, input, input_len);
+    j->vm_input_len = input_len;
+    j->nchunks = nchunks;
+    /* chunk c covers pixel rows [c*rowsPerBand, ...) via the normal
+     * [lo,hi) slicing: lo=0, hi=total pixels. params[1..2] drive it. */
+    j->params[1] = 0;
+    j->params[2] = input_len ? 3072 : 1;   /* 64x48; framePix rides in input */
+    job_setup_chunks(j);
+    if (job_id) *job_id = j->id;
+    log_add(g, "job frame #%llu: %u chunks, %uB frame rle",
+            (unsigned long long)j->id, nchunks, input_len);
     return 0;
 }
 
