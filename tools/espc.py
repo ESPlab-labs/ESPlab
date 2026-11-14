@@ -10,7 +10,9 @@ Language (integers only, by design — the VM is integer-only):
 
     # comments with '#'
     var x = 0                 # variables (max 9); types are implied
+    var h[64]                 # array (max 3, size 1..64), zeroed every chunk
     x = x + 1
+    h[i] = h[i] + 1           # array read/write; index 0..size-1 is on you
     if x < 10 { ... } else { ... }
     while x < 100 { ... }
     for i in 0..99 { ... }    # sugar for a counted while
@@ -99,11 +101,27 @@ class Parser:
         if t[0] == "var":
             self.next()
             name = self.expect("name")[1]
+            if self.at("["):
+                self.next()
+                size = self.expect("num")[1]
+                self.expect("]")
+                if self.at("="):
+                    raise SyntaxError(
+                        f"line {t[2]}: arrays cannot be initialized - they are "
+                        f"already zero at the start of every chunk")
+                return ("arrdec", name, size)
             self.expect("=")
             e = self.expr()
             return ("vardec", name, e)
         if t[0] == "name":
             self.next()
+            if self.at("["):
+                self.next()
+                idx = self.expr()
+                self.expect("]")
+                self.expect("=")
+                val = self.expr()
+                return ("astore", t[1], idx, val)
             self.expect("=")
             e = self.expr()
             return ("assign", t[1], e)
@@ -204,6 +222,11 @@ class Parser:
             self.expect("]")
             return ("input", idx)
         if t[0] == "name":
+            if self.at("["):
+                self.next()
+                idx = self.expr()
+                self.expect("]")
+                return ("avar", t[1], idx)
             return ("var", t[1])
         if t[0] == "(":
             e = self.expr()
@@ -222,6 +245,9 @@ class Parser:
 VAR_REGS = [0, 1, 2, 3, 4, 5, 6, 8, 9]
 TEMP_REGS = [10, 11, 12]
 LO_REG, HI_REG, CONST_REG = 13, 14, 15
+# array backing store: must match core/inc/vm.h (VM_SLOTS / VM_SLOT_SIZE)
+VM_SLOT_COUNT = 3
+VM_SLOT_WORDS = 64
 
 CMP_SEQ = {   # (op, addend after CMP, "skip when" opcode)
     # cond is true -> fall through; false -> jump to label
@@ -236,6 +262,8 @@ class Codegen:
         self.labels = {}         # name -> instr index
         self.vars = {}           # name -> register
         self.next_var = 0
+        self.arrays = {}         # name -> (slot 0..2, word size 1..64)
+        self.next_slot = 0
         self.temp_stack = list(reversed(TEMP_REGS))   # pop order: 12,11,10
         self.const_reg_v = None  # value currently cached in r15
         self.uses_lo = False     # prologue loads (set by pre-walk)
@@ -259,6 +287,12 @@ class Codegen:
         return self.temp_stack.pop()
     def temp_put(self, r):
         self.temp_stack.append(r)
+
+    def arr_reg(self, name, line):
+        """array name -> (slot, size); the scratch-slot backing store."""
+        if name not in self.arrays:
+            raise SyntaxError(f"line {line}: '{name}' is not a declared array")
+        return self.arrays[name]
 
     def var_reg(self, name, line):
         if name not in self.vars:
@@ -346,6 +380,17 @@ class Codegen:
             else:
                 self.gen_expr_dst(e[1], dst)
                 self.emit("ldv", dst, dst, 0)
+        elif kind == "avar":
+            # array read: h[idx] -> LDX dst, <idx-in-reg>, slot
+            slot, size = self.arr_reg(e[1], 0)
+            srcreg = self.direct_reg(e[2])
+            if srcreg is not None:
+                self.emit("ldx", dst, srcreg, slot)
+                return
+            t = self.temp_get(0)
+            self.gen_expr_dst(e[2], t)
+            self.emit("ldx", dst, t, slot)
+            self.temp_put(t)
         elif kind == "neg":
             self.gen_expr_dst(e[1], dst)
             z = self.get_const(0, 0)
@@ -557,6 +602,68 @@ class Codegen:
                     continue
                 self.gen_stmt(x)
                 i += 1
+        elif kind == "arrdec":
+            name, size = s[1], s[2]
+            if name in self.arrays or name in self.vars:
+                raise SyntaxError(f"line 0: '{name}' redeclared")
+            if size < 1 or size > VM_SLOT_WORDS:
+                raise SyntaxError(
+                    f"line 0: array size must be 1..64 words (got {size})")
+            if self.next_slot >= VM_SLOT_COUNT:
+                raise SyntaxError("line 0: too many arrays (max 3)")
+            self.arrays[name] = (self.next_slot, size)
+            self.next_slot += 1
+        elif kind == "astore":
+            # h[i] = <expr>. Same-element read-modify-write folds to
+            # LDX/ADD/STX with the index evaluated once; the value
+            # expression must be evaluated BEFORE the LDX so a constant
+            # index cached in r15 cannot be rebuilt between load and store.
+            name, idx, val = s[1], s[2], s[3]
+            slot, size = self.arr_reg(name, 0)
+            folds = (val[0] == "arith" and val[1] in ("+", "-") and
+                     val[2] == ("avar", name, idx) and
+                     idx[0] in ("var", "num"))
+            if folds:
+                # index: a variable is used in place (its register is never
+                # clobbered by expression evaluation); a constant index is
+                # materialized into a temp — never r15, which the value
+                # expression may rebuild between the LDX and the STX.
+                if idx[0] == "num":
+                    t_idx = self.temp_get(0)
+                    self.gen_expr_dst(idx, t_idx)
+                    own_idx = True
+                else:
+                    t_idx = self.var_reg(idx[1], 0)
+                    own_idx = False
+                v = val[3][1] if val[3][0] == "num" else None
+                small_addi = (val[1] == "+" and v is not None and 0 <= v <= 127)
+                small_sub = (val[1] == "-" and v is not None and 0 <= v <= 128)
+                tv = None
+                if not (small_addi or small_sub):
+                    tv = self.temp_get(0)
+                    self.gen_expr_dst(val[3], tv)
+                t = self.temp_get(0)
+                self.emit("ldx", t, t_idx, slot)
+                if small_addi:
+                    self.emit("addi", t, t, v)
+                elif small_sub:
+                    self.emit("addi", t, t, (-v) & 0xFF)
+                else:
+                    self.emit("add" if val[1] == "+" else "sub", t, t, tv)
+                    self.temp_put(tv)
+                self.emit("stx", t, t_idx, slot)
+                self.temp_put(t)
+                if own_idx:
+                    self.temp_put(t_idx)
+                return
+            # general store: index and value each into a temp
+            t_idx = self.temp_get(0)
+            self.gen_expr_dst(idx, t_idx)
+            tv = self.temp_get(0)
+            self.gen_expr_dst(val, tv)
+            self.emit("stx", tv, t_idx, slot)
+            self.temp_put(tv)
+            self.temp_put(t_idx)
         elif kind == "vardec":
             dst = self.var_reg(s[1], 0)
             self.gen_expr_dst(s[2], dst)
@@ -688,6 +795,7 @@ OPNUM = {
     "jz": 19, "jnz": 20, "call": 21, "ret": 22, "halt": 23, "emit": 24,
     "fail": 25, "yield": 26, "addi": 27, "ldvp": 28, "emitn": 29,
     "max": 30, "min": 31,
+    "ldx": 32, "stx": 33,
 }
 # sync-check against the header so drift fails loudly
 def _check_opnums():

@@ -165,6 +165,8 @@ int main(int argc, char **argv)
         else if (!strcmp(op, "emitn")) { opcode = OP_EMITN; want = 2; }
         else if (!strcmp(op, "max"))   { opcode = OP_MAX;  want = 3; }
         else if (!strcmp(op, "min"))   { opcode = OP_MIN;  want = 3; }
+        else if (!strcmp(op, "ldx"))  { opcode = OP_LDX; want = 3; }
+        else if (!strcmp(op, "stx"))  { opcode = OP_STX; want = 3; }
         else if (!strcmp(op, "halt"))  { opcode = OP_HALT; want = 0; }
         else if (!strcmp(op, "nop"))   { opcode = OP_NOP;  want = 0; }
         else if (!strcmp(op, "yield")) { opcode = OP_YIELD; want = 0; }
@@ -215,6 +217,15 @@ int main(int argc, char **argv)
             /* emitn rA, rC  — value in a, count register in c (b unused) */
             a = (uint8_t)parse_reg(tok[1], ln + 1);
             c = (uint8_t)parse_reg(tok[2], ln + 1);
+        } else if (!strcmp(op, "ldx") || !strcmp(op, "stx")) {
+            /* ldx rA, rB, slot / stx rA, rB, slot — indexed scratch access:
+             * rA = slot[slot][rB] resp. slot[slot][rB] = rA; slot in c */
+            a = (uint8_t)parse_reg(tok[1], ln + 1);
+            b = (uint8_t)parse_reg(tok[2], ln + 1);
+            char *end; long s = strtol(tok[3], &end, 0);
+            if (*end || s < 0 || s >= VM_SLOTS)
+                die("slot index must be 0..2", ln + 1);
+            c = (uint8_t)s;
         } else if (wants_imm) {
             a = (uint8_t)parse_reg(tok[1], ln + 1);
             int v = parse_imm16(tok[2], ln + 1);

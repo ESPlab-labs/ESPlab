@@ -93,8 +93,10 @@ you never compute those by hand; <code>vbasm</code> labels do it.</p>
 <tr><td><code>cmp</code></td><td><code>rD, rA, rB</code></td><td>rD = −1 / 0 / +1 as rA &lt; / = / &gt; rB</td></tr>
 <tr><td><code>ldv</code></td><td><code>rD, rA</code></td><td>rD = input[rA] (byte)</td></tr>
 <tr><td><code>lds</code></td><td><code>rD, 0|1</code></td><td>rD = slice lo (0) or hi (1) — the "where am I" syscall</td></tr>
-<tr><td><code>ld</code></td><td><code>rD, slot, off</code></td><td>read scratch slot</td></tr>
-<tr><td><code>st</code></td><td><code>rS, slot, off</code></td><td>write scratch slot</td></tr>
+<tr><td><code>ld</code></td><td><code>rD, slot, off</code></td><td>read scratch slot (fixed offset)</td></tr>
+<tr><td><code>st</code></td><td><code>rS, slot, off</code></td><td>write scratch slot (fixed offset)</td></tr>
+<tr><td><code>ldx</code></td><td><code>rD, rI, slot</code></td><td>read scratch slot word at register index (arrays)</td></tr>
+<tr><td><code>stx</code></td><td><code>rS, rI, slot</code></td><td>write scratch slot word at register index (arrays)</td></tr>
 <tr><td><code>jmp</code></td><td><code>label</code></td><td>unconditional jump</td></tr>
 <tr><td><code>jz</code> / <code>jnz</code></td><td><code>rCond, label</code></td><td>jump if rCond == 0 / != 0</td></tr>
 <tr><td><code>call</code> / <code>ret</code></td><td><code>label</code> / —</td><td>subroutine call, 8-deep stack</td></tr>

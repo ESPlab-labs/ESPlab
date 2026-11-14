@@ -105,11 +105,11 @@ uint8_t vm_run(vm_t *v, uint32_t cycles)
             }
             break;
         case OP_LD:
-            if (a >= VM_REGS || b > 3) { vm_fault(v, VM_FAULT_BADOP); break; }
+            if (a >= VM_REGS || b >= VM_SLOTS) { vm_fault(v, VM_FAULT_BADOP); break; }
             v->regs[a] = slot_read(v, b, c);
             break;
         case OP_ST: {
-            if (a >= VM_REGS || b > 3) { vm_fault(v, VM_FAULT_BADOP); break; }
+            if (a >= VM_REGS || b >= VM_SLOTS) { vm_fault(v, VM_FAULT_BADOP); break; }
             slot_write(v, b, c, v->regs[a]);
             break;
         }
@@ -192,6 +192,30 @@ uint8_t vm_run(vm_t *v, uint32_t cycles)
                     if (!v->out || v->out_len >= v->out_cap) break;
                     v->out[v->out_len++] = val;
                 }
+            }
+            break;
+        case OP_LDX:   /* rA = slot[c] word[rB] — register-indexed array read */
+            if (a >= VM_REGS || b >= VM_REGS || c >= VM_SLOTS) {
+                vm_fault(v, VM_FAULT_BADOP); break;
+            }
+            {
+                int32_t w = v->regs[b];
+                if (w < 0 || w >= VM_SLOT_SIZE / 4) {
+                    vm_fault(v, VM_FAULT_MEM); break;
+                }
+                v->regs[a] = v->slots[c][w];
+            }
+            break;
+        case OP_STX:   /* slot[c] word[rB] = rA — register-indexed array write */
+            if (a >= VM_REGS || b >= VM_REGS || c >= VM_SLOTS) {
+                vm_fault(v, VM_FAULT_BADOP); break;
+            }
+            {
+                int32_t w = v->regs[b];
+                if (w < 0 || w >= VM_SLOT_SIZE / 4) {
+                    vm_fault(v, VM_FAULT_MEM); break;
+                }
+                v->slots[c][w] = v->regs[a];
             }
             break;
         case OP_MAX: case OP_MIN:

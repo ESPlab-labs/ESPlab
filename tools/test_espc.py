@@ -148,6 +148,21 @@ def language_cases():
         "var v = max(lo, 5) + min(hi, 7)\nemit v\n",
         b"", 3, 200, [max(3, 5) + min(200, 7)],
         "lo/hi come from the chunk slice; max/min fold to single ops")
+
+    # v0.4 arrays: zeroed every chunk, const/var/computed/input indexes
+    add("arr-basic",
+        "var h[64]\nemit h[3]\nh[3] = h[3] + 5\nemit h[3]\n"
+        "var i = 1\nh[i] = 9\nemit h[i]\n",
+        b"", 0, 0, [0, 5, 9], "arrays start zeroed every chunk")
+    add("arr-computed",
+        "var h[64]\nvar i = 2\nh[i * 3] = 41\nh[i * 3] = h[i * 3] + 1\nemit h[6]\n",
+        b"", 0, 0, [42], "computed index with read-modify-write fusion")
+    add("arr-from-input",
+        "var h[64]\nh[input[0]] = 7\nemit h[input[0]]\n",
+        bytes([9]), 0, 1, [7], "input-valued index")
+    add("arr-two-slots",
+        "var a[64]\nvar b[64]\nvar i = 5\na[i] = 1\nb[i] = 2\nemit a[i]\nemit b[i]\n",
+        b"", 0, 0, [1, 2], "two arrays in different slots stay independent")
     return cases
 
 
@@ -184,6 +199,28 @@ def main():
         except Exception as ex:
             fails += 1
             print(f"FAIL {name}: {ex}  ({note})")
+
+    # an out-of-bounds array index must fault the task, never corrupt memory
+    try:
+        blob, _n = espc.compile_src("var h[64]\nvar i = 100\nh[i] = 1\nemit 7\n")
+        with tempfile.NamedTemporaryFile(suffix=".bin", delete=False) as tf:
+            tf.write(blob)
+            task_path = tf.name
+        with open(task_path + ".in", "wb") as f:
+            f.write(b"")
+        r = subprocess.run([RUNNER, task_path, task_path + ".in", "0", "0"],
+                           capture_output=True, text=True, timeout=60)
+        os.unlink(task_path)
+        os.unlink(task_path + ".in")
+        status = int(r.stdout.split("status=")[1].split()[0])
+        if status == 3:   # VM_FAULT_MEM
+            print("ok   arr-oob (out-of-range index faults the task, not the machine)")
+        else:
+            fails += 1
+            print(f"FAIL arr-oob: expected VM fault, got status {status}")
+    except Exception as ex:
+        fails += 1
+        print(f"FAIL arr-oob: {ex}")
 
     # decoder: byte-exact + instruction-count parity with the assembly
     cases, rle, payload = decoder_cases()

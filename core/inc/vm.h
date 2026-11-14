@@ -34,6 +34,9 @@ typedef enum {
     OP_EMITN,  /* append rA's low byte rC times (clamped to out cap) */
     OP_MAX,    /* rA = max(rB, rC) */
     OP_MIN,    /* rA = min(rB, rC) */
+    /* v0.4 additions (appended so older bytecode keeps its meaning) */
+    OP_LDX,    /* rA = slot[c][rB]          (register-indexed array read) */
+    OP_STX,    /* slot[c][rB] = rA          (register-indexed array write) */
 } vm_op_t;
 
 typedef enum {
@@ -47,7 +50,9 @@ typedef struct {
     uint8_t  *input; uint16_t input_len;
     int32_t  lo, hi;             /* this chunk's input slice [lo,hi) */
     int32_t  regs[VM_REGS];
-    int32_t  slots[VM_SLOTS][VM_SLOT_SIZE / 4];  /* scratch arrays */
+    int32_t  slots[VM_SLOTS][VM_SLOT_SIZE / 4];  /* scratch arrays:
+                                                  * 3 slots x 64 int32 words,
+                                                  * zero-initialized per chunk */
     int16_t  sp;                 /* call/jmp stack (return addrs) */
     int32_t  stack[VM_STACK];
     uint32_t pc;
