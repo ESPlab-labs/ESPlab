@@ -4,7 +4,7 @@ CFLAGS  ?= -Wall -Wextra -std=gnu11 -O2
 CORE    = core/src/machine.c core/src/vm.c core/src/console.c
 INC     = -Icore/inc
 
-all: build/vboard build/test_cluster build/vbasm build/eod_enc build/eod_decode.bin
+all: build/vboard build/test_cluster build/vbasm build/espc build/eod_enc build/eod_decode.bin
 
 build/vboard: host/vboard.c $(CORE) core/inc/*.h
 	@mkdir -p build
@@ -17,6 +17,12 @@ build/test_cluster: core/tests/test_cluster.c $(CORE) core/inc/*.h
 build/vbasm: tools/vbasm.c core/inc/vm.h
 	@mkdir -p build
 	$(CC) $(CFLAGS) $(INC) tools/vbasm.c -o $@
+
+# espc — the friendly task language -> VM bytecode (a copy, not a link)
+build/espc: tools/espc.py
+	@mkdir -p build
+	cp tools/espc.py $@
+	chmod +x $@
 
 build/eod_enc: tools/eod_enc.c tools/eod_codec.h
 	@mkdir -p build

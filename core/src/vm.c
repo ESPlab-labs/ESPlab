@@ -173,6 +173,35 @@ uint8_t vm_run(vm_t *v, uint32_t cycles)
             if (v->out && v->out_len < v->out_cap)
                 v->out[v->out_len++] = (uint8_t)v->regs[a] & 0xFF;
             break;
+        case OP_ADDI:
+            if (a >= VM_REGS || b >= VM_REGS) { vm_fault(v, VM_FAULT_BADOP); break; }
+            v->regs[a] = v->regs[b] + (int32_t)(int8_t)c;
+            break;
+        case OP_LDVP:
+            if (a >= VM_REGS || b >= VM_REGS) { vm_fault(v, VM_FAULT_BADOP); break; }
+            v->regs[a] = vm_ldv(v, (uint32_t)v->regs[b]);
+            v->regs[b] = (int32_t)((uint32_t)v->regs[b] + 1u);
+            break;
+        case OP_EMITN:
+            if (a >= VM_REGS || c >= VM_REGS) { vm_fault(v, VM_FAULT_BADOP); break; }
+            {
+                uint8_t val = (uint8_t)v->regs[a] & 0xFF;
+                int32_t n = v->regs[c];
+                if (n < 0) n = 0;
+                while (n-- > 0) {
+                    if (!v->out || v->out_len >= v->out_cap) break;
+                    v->out[v->out_len++] = val;
+                }
+            }
+            break;
+        case OP_MAX: case OP_MIN:
+            if (a >= VM_REGS || b >= VM_REGS || c >= VM_REGS) {
+                vm_fault(v, VM_FAULT_BADOP); break;
+            }
+            v->regs[a] = (op == OP_MAX)
+                ? ((v->regs[b] > v->regs[c]) ? v->regs[b] : v->regs[c])
+                : ((v->regs[b] < v->regs[c]) ? v->regs[b] : v->regs[c]);
+            break;
         case OP_FAIL:
             vm_fault(v, VM_FAULT_BADOP);
             return v->status;

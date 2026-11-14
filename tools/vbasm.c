@@ -160,6 +160,11 @@ int main(int argc, char **argv)
         else if (!strcmp(op, "ldv"))   { opcode = OP_LDV; want = 2; }
         else if (!strcmp(op, "lds"))   { opcode = OP_LDS; want = 2; }
         else if (!strcmp(op, "emit"))  { opcode = OP_EMIT; want = 1; }
+        else if (!strcmp(op, "addi"))  { opcode = OP_ADDI; want = 3; }
+        else if (!strcmp(op, "ldvp"))  { opcode = OP_LDVP; want = 2; }
+        else if (!strcmp(op, "emitn")) { opcode = OP_EMITN; want = 2; }
+        else if (!strcmp(op, "max"))   { opcode = OP_MAX;  want = 3; }
+        else if (!strcmp(op, "min"))   { opcode = OP_MIN;  want = 3; }
         else if (!strcmp(op, "halt"))  { opcode = OP_HALT; want = 0; }
         else if (!strcmp(op, "nop"))   { opcode = OP_NOP;  want = 0; }
         else if (!strcmp(op, "yield")) { opcode = OP_YIELD; want = 0; }
@@ -198,6 +203,18 @@ int main(int argc, char **argv)
             int v = parse_imm16(tok[2], ln + 1);      /* 0 = lo, 1 = hi */
             if (v > 1) die("lds selector must be 0 (lo) or 1 (hi)", ln + 1);
             b = (uint8_t)v;
+        } else if (!strcmp(op, "addi")) {
+            /* addi rA, rB, imm  — signed immediate rides directly in c */
+            a = (uint8_t)parse_reg(tok[1], ln + 1);
+            b = (uint8_t)parse_reg(tok[2], ln + 1);
+            char *end; long v = strtol(tok[3], &end, 0);
+            if (*end || v < -128 || v > 255)
+                die("addi immediate must be -128..255", ln + 1);
+            c = (uint8_t)(v & 0xFF);
+        } else if (!strcmp(op, "emitn")) {
+            /* emitn rA, rC  — value in a, count register in c (b unused) */
+            a = (uint8_t)parse_reg(tok[1], ln + 1);
+            c = (uint8_t)parse_reg(tok[2], ln + 1);
         } else if (wants_imm) {
             a = (uint8_t)parse_reg(tok[1], ln + 1);
             int v = parse_imm16(tok[2], ln + 1);

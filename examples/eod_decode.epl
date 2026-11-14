@@ -1,0 +1,34 @@
+# eod_decode.epl — the ESP On Demand band decoder, written in ESPlab's
+# task language (compile with: python3 tools/espc.py eod_decode.epl).
+#
+# This is the SAME algorithm as examples/eod_decode.s (the hand-written
+# assembly that ships with the player) — kept side by side so you can see
+# what the compiler produces and pick which style you prefer. The cluster
+# gives this task one frame's RLE and this band's [lo,hi) pixel range;
+# it emits exactly the palette bytes of its band.
+#
+# Input layout: 16-byte header, then RLE pairs (count, palette-index).
+# The pixel cursor is absolute from 0: runs can straddle band edges, and
+# max/min clamp each run to the visible slice.
+
+var cur = 0          # absolute pixel cursor
+var p = 16           # pair cursor into the input
+var idx = 0          # current palette index
+var run = 0          # current run length
+var vis = 0          # visible length after clamping to [lo,hi)
+var rend = 0         # run end
+var vstart = 0       # visible start
+
+while (cur < hi) {
+  cnt = input[p]
+  p = p + 1
+  idx = input[p]
+  p = p + 1
+  run = (cnt >> 1) + 1
+  vstart = max(lo, cur)
+  rend = min(cur + run, hi)
+  vis = rend - vstart
+  if (vis > 0) { emitn idx, vis }
+  cur = cur + run
+}
+halt

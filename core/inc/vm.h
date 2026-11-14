@@ -28,6 +28,12 @@ typedef enum {
     OP_EMIT,   /* append rA to this task's output buffer */
     OP_FAIL,   /* explicit fault: status=VM fault */
     OP_YIELD,
+    /* v0.3 additions (appended so older bytecode keeps its meaning) */
+    OP_ADDI,   /* rA = rB + sext(c): small-constant add, no LOADI dance */
+    OP_LDVP,   /* rA = input[rB]; rB += 1  (post-increment input read) */
+    OP_EMITN,  /* append rA's low byte rC times (clamped to out cap) */
+    OP_MAX,    /* rA = max(rB, rC) */
+    OP_MIN,    /* rA = min(rB, rC) */
 } vm_op_t;
 
 typedef enum {

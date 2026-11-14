@@ -118,6 +118,37 @@ you never compute those by hand; <code>vbasm</code> labels do it.</p>
 <code>loadi r7, 1; add r3, r3, r7</code>. That is why <code>r7</code> is
 reserved as assembler scratch — never keep a live value there.</p>
 
+## Don't want to learn assembly?
+
+Write tasks in ESPlab's own small language instead — variables, `if`,
+`while`, `for i in 0..99`, `input[i]` to read the chunk's input, `emit x`
+to write output. It compiles to the same bytecode:
+
+```bash
+python3 tools/espc.py examples/eod_decode.epl -o task.bin
+```
+
+The full video decoder, in the friendly language
+([examples/eod_decode.epl](https://github.com/ESPlab-labs/ESPlab/blob/main/examples/eod_decode.epl)):
+
+```python
+var cur = 0            # absolute pixel cursor
+var p = 16             # pair cursor into the input
+while (cur < hi) {
+  cnt = input[p]; p = p + 1
+  idx = input[p]; p = p + 1
+  run = (cnt >> 1) + 1
+  vis = min(cur + run, hi) - max(lo, cur)
+  if (vis > 0) { emitn idx, vis }
+  cur = cur + run
+}
+```
+
+`lo`/`hi` are this chunk's slice of the job — the cluster splits the work;
+the task just does its part. The assembler (`vbasm`) remains available for
+hand-tuning hot loops: the assembly version of the same decoder runs ~2.3x
+fewer instructions.
+
 <h2 id="hello">4. A worked example: count the 'a's</h2>
 
 <p>The VM's "hello world" (from <code>examples/count_a.s</code>):
