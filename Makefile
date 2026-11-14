@@ -4,7 +4,7 @@ CFLAGS  ?= -Wall -Wextra -std=gnu11 -O2
 CORE    = core/src/machine.c core/src/vm.c core/src/console.c
 INC     = -Icore/inc
 
-all: build/vboard build/test_cluster build/vbasm build/espc build/eod_enc build/eod_decode.bin
+all: build/vboard build/test_cluster build/vbasm build/espc build/eod_enc build/eod_decode.bin build/espc_vmtest
 
 build/vboard: host/vboard.c $(CORE) core/inc/*.h
 	@mkdir -p build
@@ -36,8 +36,13 @@ build/eod_bandtest: tools/eod_bandtest.c $(CORE)
 	@mkdir -p build
 	$(CC) $(CFLAGS) $(INC) tools/eod_bandtest.c core/src/vm.c -o $@
 
-test: build/test_cluster
+build/espc_vmtest: tools/espc_vmtest.c core/src/vm.c core/inc/vm.h
+	@mkdir -p build
+	$(CC) $(CFLAGS) $(INC) tools/espc_vmtest.c core/src/vm.c -o $@
+
+test: build/test_cluster build/espc_vmtest build/eod_decode.bin
 	./build/test_cluster
+	python3 tools/test_espc.py
 
 demo: build/vboard
 	python3 tools/drive_cluster.py

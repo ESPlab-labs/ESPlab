@@ -9,7 +9,7 @@ learn the assembly to put work on the cluster.
 Language (integers only, by design — the VM is integer-only):
 
     # comments with '#'
-    var x = 0                 # variables (max 11); types are implied
+    var x = 0                 # variables (max 9); types are implied
     x = x + 1
     if x < 10 { ... } else { ... }
     while x < 100 { ... }
@@ -212,10 +212,16 @@ class Parser:
         raise SyntaxError(f"line {t[2]}: unexpected {t[1]!r} in expression")
 
 # ---------------- codegen ----------------
-# Registers: r0..r6, r8..r11 = variables (r7 stays asm-scratch by convention),
-# r12..r15 = expression temporaries.
-VAR_REGS = [0, 1, 2, 3, 4, 5, 6, 8, 9, 10, 11]
-TEMP_REGS = [12, 13, 14, 15]
+# Register map (16 regs):
+#   r0-r6, r8-r9   = variables (9)
+#   r10-r12        = expression temporaries
+#   r13 / r14      = cached chunk slice bounds (lo / hi), set once in prologue
+#   r15            = constant cache (LOADI results; hoisted out of loops
+#                    for free because the value stays valid across iterations)
+#   r7             = untouched (vbasm scratch convention)
+VAR_REGS = [0, 1, 2, 3, 4, 5, 6, 8, 9]
+TEMP_REGS = [10, 11, 12]
+LO_REG, HI_REG, CONST_REG = 13, 14, 15
 
 CMP_SEQ = {   # (op, addend after CMP, "skip when" opcode)
     # cond is true -> fall through; false -> jump to label
@@ -230,7 +236,20 @@ class Codegen:
         self.labels = {}         # name -> instr index
         self.vars = {}           # name -> register
         self.next_var = 0
-        self.temp_stack = list(reversed(TEMP_REGS))   # pop order: 12,13,14,15
+        self.temp_stack = list(reversed(TEMP_REGS))   # pop order: 12,11,10
+        self.const_reg_v = None  # value currently cached in r15
+        self.uses_lo = False     # prologue loads (set by pre-walk)
+        self.uses_hi = False
+
+    def get_const(self, v, line):
+        """Constant in a register — cached in r15 so loop-invariant LOADIs
+        cost once per task, not once per iteration."""
+        if v < 0 or v > 65535:
+            raise SyntaxError(f"line {line}: constant {v} out of range (0..65535)")
+        if self.const_reg_v != v:
+            self.emit("loadi", CONST_REG, v & 0xFF, (v >> 8) & 0xFF)
+            self.const_reg_v = v
+        return CONST_REG
 
     def temp_get(self, line):
         if not self.temp_stack:
@@ -271,65 +290,192 @@ class Codegen:
         self._n = getattr(self, "_n", 0) + 1
         return f"{base}{self._n}"
 
-    # ---- expressions: result lands in register `dst` ----
-    def gen_expr(self, e, dst):
+    def direct_reg(self, x, line=0):
+        """Register holding x's value right now (var / lo / hi / cached
+        constant), or None if x needs evaluation. Reads are non-destructive:
+        using these as instruction operands is always safe."""
+        if x[0] == "var":
+            return self.var_reg(x[1], line)
+        if x[0] == "lo":
+            return LO_REG
+        if x[0] == "hi":
+            return HI_REG
+        if x[0] == "num":
+            return self.get_const(x[1], line)
+        return None
+
+    # ---- expressions ----
+    # gen_expr_dst(e, dst): evaluate e INTO dst without a wrapper MOV.
+    # gen_expr(e): evaluate into a temp, return its register.
+    def gen_expr(self, e):
+        t = self.temp_get(0)
+        self.gen_expr_dst(e, t)
+        return t
+
+    def gen_expr_dst(self, e, dst):
         kind = e[0]
         if kind == "num":
-            v = e[1]
-            if v < 0 or v > 65535:
-                raise SyntaxError(f"constant {v} out of range (0..65535)")
-            self.emit("loadi", dst, v & 0xFF, (v >> 8) & 0xFF)
+            if dst == CONST_REG:
+                # r15 IS the constant cache — let get_const decide whether a
+                # LOADI is needed (it is free when the value is cached).
+                self.get_const(e[1], 0)
+            else:
+                # a plain destination must ALWAYS materialize the constant:
+                # r15's cache can be rebuilt at any time by later code, so a
+                # "destination register == cache too, skip" shortcut would
+                # miscompile `while (a < 100) { ... } var c = 100` into
+                # `var c`-loads-nothing (the LOADI for the compare serviced
+                # r15, not this variable).
+                if e[1] < 0 or e[1] > 65535:
+                    raise SyntaxError(f"constant {e[1]} out of range (0..65535)")
+                self.emit("loadi", dst, e[1] & 0xFF, (e[1] >> 8) & 0xFF)
         elif kind == "var":
-            self.emit("mov", dst, self.var_reg(e[1], 0), 0)
-        elif kind == "lo" or kind == "hi":
-            self.emit("lds", dst, 0 if kind == "lo" else 1, 0)
+            src = self.var_reg(e[1], 0)
+            if src != dst:
+                self.emit("mov", dst, src, 0)
+        elif kind == "lo":
+            if dst != LO_REG:
+                self.emit("mov", dst, LO_REG, 0)
+        elif kind == "hi":
+            if dst != HI_REG:
+                self.emit("mov", dst, HI_REG, 0)
         elif kind == "input":
-            self.gen_expr(e[1], dst)
-            self.emit("ldv", dst, dst, 0)
+            src = self.direct_reg(e[1])
+            if src is not None:
+                self.emit("ldv", dst, src, 0)
+            else:
+                self.gen_expr_dst(e[1], dst)
+                self.emit("ldv", dst, dst, 0)
         elif kind == "neg":
-            self.gen_expr(e[1], dst)
-            self.emit("loadi", 15, 0, 0)
-            self.emit("sub", dst, 15, dst)
+            self.gen_expr_dst(e[1], dst)
+            z = self.get_const(0, 0)
+            self.emit("sub", dst, z, dst)
         elif kind == "cmp":
             op, l, r = e[1], e[2], e[3]
-            # materialize the comparison as 0/1 with a short branch:
-            #   cmp l,r ; addi addend ; j<skip> false ; dst=1 ; jmp join
-            #   false: dst=0 ; join:
-            # (same predicate as gen_cond: skip-op from CMP_SEQ)
             addend, skip = CMP_SEQ[op]
-            self.gen_expr(l, dst)
+            self.gen_expr_dst(l, dst)
             t = self.temp_get(0)
-            self.gen_expr(r, t)
+            self.gen_expr_dst(r, t)
             self.emit("cmp", dst, dst, t)
             self.temp_put(t)
+            if dst == CONST_REG:
+                self.const_reg_v = None   # r15 now holds a dynamic 0/±1: cache dead
             if addend:
                 self.emit("addi", dst, dst, addend & 0xFF)
             fl = self.uniq("cmpf"); join = self.uniq("cmpj")
             self.branch(skip, dst, fl, 0)
-            self.emit("loadi", dst, 1, 0)
+            one = self.get_const(1, 0) if dst != CONST_REG else None
+            if dst == CONST_REG:
+                # rare: comparison value cached in r15 — use a temp for 1
+                t1 = self.temp_get(0)
+                self.emit("loadi", t1, 1, 0)
+                self.emit("mov", dst, t1, 0)
+                self.temp_put(t1)
+            else:
+                self.emit("mov", dst, one, 0)
             self.branch("jmp", 0, join, 0)
             self.place(fl)
-            self.emit("loadi", dst, 0, 0)
+            zero = self.get_const(0, 0)
+            if dst != CONST_REG:
+                self.emit("mov", dst, zero, 0)
+            else:
+                self.const_reg_v = None   # r15 rewritten below anyway
+                self.emit("loadi", dst, 0, 0)
+                self.const_reg_v = 0
             self.place(join)
+        elif kind in ("cmpmax", "cmpmin"):
+            # max/min with lo/hi or a variable: use the operand register
+            # directly instead of MOV-ing into dst first
+            OPN = "max" if kind == "cmpmax" else "min"
+            if dst == CONST_REG:
+                self.const_reg_v = None   # r15 now holds a dynamic value: cache dead
+            def operand_reg(x, avoid):
+                if x[0] == "lo":
+                    return LO_REG
+                if x[0] == "hi":
+                    return HI_REG
+                if x[0] == "var":
+                    return self.var_reg(x[1], 0)
+                return None
+            ra = operand_reg(e[1], dst)
+            rb = operand_reg(e[2], dst)
+            if ra is not None and rb is not None:
+                self.emit(OPN, dst, ra, rb)
+                return
+            if ra is not None:
+                t = self.temp_get(0)
+                self.gen_expr_dst(e[2], t)
+                self.emit(OPN, dst, ra, t)
+                self.temp_put(t)
+                return
+            if rb is not None:
+                self.gen_expr_dst(e[1], dst)
+                self.emit(OPN, dst, dst, rb)
+                return
+            self.gen_expr_dst(e[1], dst)
+            t = self.temp_get(0)
+            self.gen_expr_dst(e[2], t)
+            self.emit(OPN, dst, dst, t)
+            self.temp_put(t)
         elif kind == "arith":
             op, l, r = e[1], e[2], e[3]
-            self.gen_expr(l, dst)
-            t = self.temp_get(0)
-            self.gen_expr(r, t)
+            # constant RHS: fold into the op when the ISA allows it
+            if r[0] == "num" and op in ("+", "-", ">>"):
+                self.gen_expr_dst(l, dst)
+                v = r[1]
+                if op == "+":
+                    if 0 <= v <= 255:
+                        self.emit("addi", dst, dst, v)
+                    else:
+                        t = self.get_const(v, 0)
+                        self.emit("add", dst, dst, t)
+                elif op == "-":
+                    if 0 <= v <= 255:
+                        self.emit("addi", dst, dst, (-v) & 0xFF)
+                    else:
+                        t = self.get_const(v, 0)
+                        self.emit("sub", dst, dst, t)
+                else:  # >>
+                    t = self.get_const(v, 0)
+                    self.emit("shr", dst, dst, t)
+                return
+            # constant LHS for commutative ops
+            if l[0] == "num" and op in ("+", "*", "&", "|", "^"):
+                self.gen_expr_dst(r, dst)
+                t = self.get_const(l[1], 0)
+                OP = {"+": "add", "*": "mul", "&": "and", "|": "or", "^": "xor"}[op]
+                self.emit(OP, dst, dst, t)
+                return
+            # general case: eval LHS into dst, RHS into a temp — but when
+            # either side is already in a register, use it as the operand
+            # directly (no MOV, no temp)
             OP = {"+" : "add", "-": "sub", "*": "mul", "/": "div", "%": "mod",
                   "&": "and", "|": "or", "^": "xor", "<<": "shl", ">>": "shr"}[op]
-            self.emit(OP, dst, dst, t)
-            self.temp_put(t)
-        elif kind in ("cmpmax", "cmpmin"):
-            self.gen_expr(e[1], dst)
+            ra = self.direct_reg(l)
+            rb = self.direct_reg(r)
+            if ra is not None and rb is not None:
+                self.emit(OP, dst, ra, rb)
+                return
+            if ra is not None and r[0] in ("cmp", "cmpmax", "cmpmin", "arith", "input", "neg"):
+                t = self.temp_get(0)
+                self.gen_expr_dst(r, t)
+                self.emit(OP, dst, ra, t)
+                self.temp_put(t)
+                return
+            if rb is not None and l[0] in ("cmp", "cmpmax", "cmpmin", "arith", "input", "neg"):
+                self.gen_expr_dst(l, dst)
+                self.emit(OP, dst, dst, rb)
+                return
+            self.gen_expr_dst(l, dst)
             t = self.temp_get(0)
-            self.gen_expr(e[2], t)
-            self.emit("max" if kind == "cmpmax" else "min", dst, dst, t)
+            self.gen_expr_dst(r, t)
+            self.emit(OP, dst, dst, t)
             self.temp_put(t)
         else:
             raise SyntaxError(f"internal: unknown expr {kind}")
 
     # ---- condition: jump to `end` when false ----
+    # fused: evaluates operands straight into temps (no wrapper MOVs)
     def gen_cond(self, e, end_label, line):
         kind = e[0]
         if kind == "cmp":
@@ -340,12 +486,40 @@ class Codegen:
             elif op == ">=": addend, skip = 1, "jz"
             elif op == "==": addend, skip = 0, "jnz"
             else: addend, skip = 0, "jz"          # !=
+            # direct-operand fast path: an operand that already lives in a
+            # register (var / lo / hi) is cmp'd in place — no MOV into a
+            # temp. Constants are deliberately NOT classified here: they
+            # materialize in r15, and evaluating the OTHER operand first
+            # can rebuild the cache, so the constant must be cached AFTER.
+            def dreg(x):
+                if x[0] in ("var", "lo", "hi"):
+                    return self.direct_reg(x, line)
+                return None
+            ra = dreg(l)
+            rb = dreg(r)
             t = self.temp_get(line)
-            self.gen_expr(l, t)
-            t2 = self.temp_get(line)
-            self.gen_expr(r, t2)
-            self.emit("cmp", t, t, t2)
-            self.temp_put(t2)
+            if ra is not None and rb is not None:
+                self.emit("cmp", t, ra, rb)
+            elif ra is not None:
+                self.gen_expr_dst(r, t)      # num/complex RHS lands in t
+                self.emit("cmp", t, ra, t)
+            elif rb is not None:
+                self.gen_expr_dst(l, t)      # LHS lands in t; rb is safe
+                self.emit("cmp", t, t, rb)
+            elif r[0] == "num":
+                self.gen_expr_dst(l, t)      # evaluate BEFORE caching r15
+                t2 = self.get_const(r[1], line)
+                self.emit("cmp", t, t, t2)
+            elif l[0] == "num":
+                self.gen_expr_dst(r, t)      # evaluate BEFORE caching r15
+                t2 = self.get_const(l[1], line)
+                self.emit("cmp", t, t2, t)
+            else:
+                t2 = self.temp_get(line)
+                self.gen_expr_dst(l, t)
+                self.gen_expr_dst(r, t2)
+                self.emit("cmp", t, t, t2)
+                self.temp_put(t2)
             if addend:
                 self.emit("addi", t, t, addend & 0xFF)
             self.branch(skip, t, end_label, line)
@@ -353,17 +527,11 @@ class Codegen:
         elif kind == "var":
             reg = self.var_reg(e[1], line)
             self.branch("jz", reg, end_label, line)
-        elif kind == "input":
-            t = self.temp_get(line)
-            self.gen_expr(e, t)
-            self.branch("jz", t, end_label, line)
-            self.temp_put(t)
         elif kind == "num":
             if e[1] == 0:
                 self.branch("jmp", 0, end_label, line)
         else:
-            t = self.temp_get(line)
-            self.gen_expr(e, t)
+            t = self.gen_expr(e)
             self.branch("jz", t, end_label, line)
             self.temp_put(t)
 
@@ -371,26 +539,50 @@ class Codegen:
     def gen_stmt(self, s):
         kind = s[0]
         if kind == "block":
-            for x in s[1]:
+            xs = s[1]
+            i = 0
+            while i < len(xs):
+                x = xs[i]
+                nxt = xs[i + 1] if i + 1 < len(xs) else None
+                # fusion: `A = input[p]` followed by `p = p + 1` becomes the
+                # single post-increment read LDVP (same as hand-written asm)
+                if (x[0] == "assign" and x[2][0] == "input" and
+                        x[2][1][0] == "var" and nxt and nxt[0] == "assign" and
+                        nxt[1] == x[2][1][1] and
+                        nxt[2] == ("arith", "+", ("var", nxt[1]), ("num", 1))):
+                    dst = self.var_reg(x[1], 0)
+                    rp = self.var_reg(nxt[1], 0)
+                    self.emit("ldvp", dst, rp)
+                    i += 2
+                    continue
                 self.gen_stmt(x)
+                i += 1
         elif kind == "vardec":
             dst = self.var_reg(s[1], 0)
-            self.gen_expr(s[2], dst)
+            self.gen_expr_dst(s[2], dst)
         elif kind == "assign":
             dst = self.var_reg(s[1], 0)
-            self.gen_expr(s[2], dst)
+            self.gen_expr_dst(s[2], dst)
         elif kind == "emit":
-            t = self.temp_get(0)
-            self.gen_expr(s[1], t)
-            self.emit("emit", t)
-            self.temp_put(t)
+            if s[1][0] == "var":
+                self.emit("emit", self.var_reg(s[1][1], 0))
+            else:
+                t = self.gen_expr(s[1])
+                self.emit("emit", t)
+                self.temp_put(t)
         elif kind == "emitn":
-            tv = self.temp_get(0)
-            self.gen_expr(s[1], tv)
+            # value: direct var register when possible
+            if s[1][0] == "var":
+                tv = self.var_reg(s[1][1], 0)
+            else:
+                tv = self.temp_get(0)
+                self.gen_expr_dst(s[1], tv)
             tn = self.temp_get(0)
-            self.gen_expr(s[2], tn)
+            self.gen_expr_dst(s[2], tn)
             self.emit("emitn", tv, 0, tn)
-            self.temp_put(tv); self.temp_put(tn)
+            if s[1][0] != "var":
+                self.temp_put(tv)
+            self.temp_put(tn)
         elif kind == "halt":
             self.emit("halt")
         elif kind == "if":
@@ -403,10 +595,12 @@ class Codegen:
                 self.branch("jmp", 0, end_l, 0)
                 self.place(else_l)
                 self.gen_stmt(els)
+                self.const_reg_v = None   # join: r15 differs per path
                 self.place(end_l)
             else:
                 self.gen_cond(cond, end_l, 0)
                 self.gen_stmt(then)
+                self.const_reg_v = None   # join: skipped path left other r15
                 self.place(end_l)
         elif kind == "while":
             _, cond, body = s
@@ -416,23 +610,37 @@ class Codegen:
             self.gen_cond(cond, end, 0)
             self.gen_stmt(body)
             self.branch("jmp", 0, top, 0)
+            self.const_reg_v = None       # join: fall-in and body-tail differ
             self.place(end)
         elif kind == "for":
             _, var, a, b, body = s
             reg = self.var_reg(var, 0)
-            self.gen_expr(a, reg)
+            self.gen_expr_dst(a, reg)
             top = self.uniq("ftop")
             end = self.uniq("fend")
             self.place(top)
+            # `for i in a..b` runs the body for i = a..b INCLUSIVE (the docs
+            # idiom is `for i in 0..99`; v0.3.0's addend form ran one short).
             t = self.temp_get(0)
-            self.gen_expr(b, t)
-            self.emit("cmp", t, reg, t)
-            self.temp_put(t)
-            self.emit("addi", t, t, 1)          # continue while reg < b
-            self.branch("jnz", t, end, 0)
+            tb = self.get_const(b[1], 0) if b[0] == "num" else None
+            if tb is None:
+                tb = self.temp_get(0)
+                self.gen_expr_dst(b, tb)
+            # exit test: i > b  <=>  cmp(i,b) - 1 == 0.  The cmp's ±1 offset
+            # also means t != 0 on every iteration that runs the body, so
+            # the stale t doubles as the post-bump backedge condition:
+            #   top: cmp t,i,b ; addi t,-1 ; jz t,end ; body ; addi i ; jnz t,top
+            # — 5 instructions per iteration, body runs for i = a..b INCLUSIVE.
+            self.emit("cmp", t, reg, tb)
+            self.emit("addi", t, t, 0xFF)
+            self.branch("jz", t, end, 0)
             self.gen_stmt(body)
             self.emit("addi", reg, reg, 1)
-            self.branch("jmp", 0, top, 0)
+            self.branch("jnz", t, top, 0)
+            self.temp_put(t)
+            if b[0] != "num":
+                self.temp_put(tb)
+            self.const_reg_v = None       # join: exit and body-tail differ
             self.place(end)
         else:
             raise SyntaxError(f"internal: unknown stmt {kind}")
@@ -443,6 +651,26 @@ def compile_src(src):
     while not p.at("eof"):
         stmts.append(p.statement())
     cg = Codegen()
+    # pre-walk: which slice-bound globals does the program use? (prologue)
+    def walk(e):
+        if not isinstance(e, tuple):
+            return
+        if e[0] == "lo":
+            cg.uses_lo = True
+        if e[0] == "hi":
+            cg.uses_hi = True
+        for x in e[1:]:
+            if isinstance(x, tuple):
+                walk(x)
+            elif isinstance(x, list):
+                for y in x:
+                    walk(y)
+    for s in stmts:
+        walk(s)
+    if cg.uses_lo:
+        cg.emit("lds", LO_REG, 0, 0)
+    if cg.uses_hi:
+        cg.emit("lds", HI_REG, 1, 0)
     for s in stmts:
         cg.gen_stmt(s)
     cg.emit("halt")
