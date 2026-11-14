@@ -35,7 +35,7 @@ int main(int argc, char **argv)
     vm_t vm;
     vm_init(&vm, code, (uint16_t)clen, input, (uint16_t)ilen,
             out, sizeof(out), (int32_t)lo, (int32_t)hi);
-    for (int slice = 0; slice < 40 && vm.status == VM_OK; slice++) {
+    for (int slice = 0; slice < 20000 && vm.status == VM_OK; slice++) {
         vm_run(&vm, VM_CYCLES_PER_SLICE);
         if (vm.halted) break;
     }

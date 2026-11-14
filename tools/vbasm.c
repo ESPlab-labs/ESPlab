@@ -146,6 +146,7 @@ int main(int argc, char **argv)
         int wants_imm = 0;             /* loadi: reg + imm16 */
 
         if      (!strcmp(op, "loadi")) { opcode = OP_LOADI; want = 2; wants_imm = 1; }
+        else if (!strcmp(op, "mov"))  { opcode = OP_MOV;  want = 2; }
         else if (!strcmp(op, "add"))   { opcode = OP_ADD; want = 3; }
         else if (!strcmp(op, "sub"))   { opcode = OP_SUB; want = 3; }
         else if (!strcmp(op, "mul"))   { opcode = OP_MUL; want = 3; }
@@ -165,6 +166,7 @@ int main(int argc, char **argv)
         else if (!strcmp(op, "emitn")) { opcode = OP_EMITN; want = 2; }
         else if (!strcmp(op, "max"))   { opcode = OP_MAX;  want = 3; }
         else if (!strcmp(op, "min"))   { opcode = OP_MIN;  want = 3; }
+        else if (!strcmp(op, "shru")) { opcode = OP_SHRU; want = 3; }
         else if (!strcmp(op, "ldx"))  { opcode = OP_LDX; want = 3; }
         else if (!strcmp(op, "stx"))  { opcode = OP_STX; want = 3; }
         else if (!strcmp(op, "halt"))  { opcode = OP_HALT; want = 0; }

@@ -37,6 +37,7 @@ typedef enum {
     /* v0.4 additions (appended so older bytecode keeps its meaning) */
     OP_LDX,    /* rA = slot[c][rB]          (register-indexed array read) */
     OP_STX,    /* slot[c][rB] = rA          (register-indexed array write) */
+    OP_SHRU,   /* rA = (uint32)rB >> rC     (logical shift; SHR stays signed) */
 } vm_op_t;
 
 typedef enum {

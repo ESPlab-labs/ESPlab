@@ -22,7 +22,8 @@ Language (integers only, by design — the VM is integer-only):
     lo / hi                   # this chunk's [lo,hi) pixel/element range
     halt                      # finish (implicit at end of program)
 
-Operators: + - * / % & | ^ << == != < <= > >=  with C precedence,
+Operators: + - * / % & | ^ << >> >>> == != < <= > >=  with C precedence
+(>> arithmetic, >>> logical/unsigned),
 parentheses, and unary minus. Every task sees the whole job input but only
 its own [lo,hi) slice — the cluster does the splitting (see docs/site/vm.html).
 """
@@ -31,7 +32,7 @@ import sys, struct
 # ---------------- tokenizer ----------------
 KEYWORDS = {"var", "if", "else", "while", "for", "in", "emit", "emitn",
             "halt", "lo", "hi", "input", "max", "min"}
-SYMBOLS = ["==", "!=", "<=", ">=", "<<", ">>", "+", "-", "*", "/", "%",
+SYMBOLS = ["==", "!=", "<=", ">=", "<<", ">>>", ">>", "+", "-", "*", "/", "%",
            "&", "|", "^", "<", ">", "=", "(", ")", "{", "}", "[", "]", ",", ".."]
 
 def tokenize(src):
@@ -186,7 +187,7 @@ class Parser:
         return l
     def shift(self):
         l = self.mul()
-        while self.peek()[0] in ("<<", ">>"):
+        while self.peek()[0] in ("<<", ">>", ">>>"):
             op = self.next()[0]
             l = ("arith", op, l, self.mul())
         return l
@@ -495,20 +496,37 @@ class Codegen:
             # either side is already in a register, use it as the operand
             # directly (no MOV, no temp)
             OP = {"+" : "add", "-": "sub", "*": "mul", "/": "div", "%": "mod",
-                  "&": "and", "|": "or", "^": "xor", "<<": "shl", ">>": "shr"}[op]
+                  "&": "and", "|": "or", "^": "xor", "<<": "shl", ">>": "shr",
+                  ">>>": "shru"}[op]
             ra = self.direct_reg(l)
             rb = self.direct_reg(r)
             if ra is not None and rb is not None:
-                self.emit(OP, dst, ra, rb)
+                if ra == CONST_REG and rb == CONST_REG:
+                    # both operands are constants: r15 holds only the LAST
+                    # one cached, so `l OP r` would become `r OP r`.
+                    # Materialize the LHS in dst (never r15) and combine.
+                    self.emit("loadi", dst, l[1] & 0xFF, (l[1] >> 8) & 0xFF)
+                    self.emit(OP, dst, dst, rb)
+                else:
+                    self.emit(OP, dst, ra, rb)
                 return
             if ra is not None and r[0] in ("cmp", "cmpmax", "cmpmin", "arith", "input", "neg"):
+                # ra may be the r15 constant cache: evaluating the dynamic
+                # RHS can rebuild it underneath. Evaluate the dynamic side
+                # first, re-cache the constant last (gen_cond's pattern).
                 t = self.temp_get(0)
                 self.gen_expr_dst(r, t)
+                if ra == CONST_REG:
+                    ra = self.get_const(l[1], 0)
                 self.emit(OP, dst, ra, t)
                 self.temp_put(t)
                 return
             if rb is not None and l[0] in ("cmp", "cmpmax", "cmpmin", "arith", "input", "neg"):
+                # mirror: rb may be r15; the LHS evaluation can rebuild the
+                # cache under it, so re-cache the constant AFTER the LHS.
                 self.gen_expr_dst(l, dst)
+                if rb == CONST_REG:
+                    rb = self.get_const(r[1], 0)
                 self.emit(OP, dst, dst, rb)
                 return
             self.gen_expr_dst(l, dst)
@@ -795,7 +813,7 @@ OPNUM = {
     "jz": 19, "jnz": 20, "call": 21, "ret": 22, "halt": 23, "emit": 24,
     "fail": 25, "yield": 26, "addi": 27, "ldvp": 28, "emitn": 29,
     "max": 30, "min": 31,
-    "ldx": 32, "stx": 33,
+    "ldx": 32, "stx": 33, "shru": 34,
 }
 # sync-check against the header so drift fails loudly
 def _check_opnums():

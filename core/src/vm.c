@@ -94,14 +94,15 @@ uint8_t vm_run(vm_t *v, uint32_t cycles)
             case OP_XOR: v->regs[a] = v->regs[b] ^ v->regs[c]; break;
             }
             break;
-        case OP_SHL: case OP_SHR:
+        case OP_SHL: case OP_SHR: case OP_SHRU:
             if (a >= VM_REGS || b >= VM_REGS || c >= VM_REGS) {
                 vm_fault(v, VM_FAULT_BADOP); break;
             }
             {
                 int32_t s = v->regs[c] & 31;
                 if (op == OP_SHL) v->regs[a] = (int32_t)((uint32_t)v->regs[b] << s);
-                else              v->regs[a] = v->regs[b] >> s;
+                else if (op == OP_SHR) v->regs[a] = v->regs[b] >> s;
+                else                  v->regs[a] = (int32_t)((uint32_t)v->regs[b] >> s);
             }
             break;
         case OP_LD:

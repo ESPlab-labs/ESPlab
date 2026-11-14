@@ -89,7 +89,7 @@ you never compute those by hand; <code>vbasm</code> labels do it.</p>
 <tr><th>mnemonic</th><th>operands</th><th>effect</th></tr>
 <tr><td><code>loadi</code></td><td><code>rD, imm16</code></td><td>rD = imm (unsigned 16-bit)</td></tr>
 <tr><td><code>mov</code></td><td><code>rD, rA</code></td><td>rD = rA</td></tr>
-<tr><td><code>add sub mul div mod and or xor shl shr</code></td><td><code>rD, rA, rB</code></td><td>rD = rA ⊕ rB (div/mod by zero faults; shifts use rB &amp; 31)</td></tr>
+<tr><td><code>add sub mul div mod and or xor shl shr shru</code></td><td><code>rD, rA, rB</code></td><td>rD = rA ⊕ rB (div/mod by zero faults; shifts use rB &amp; 31; <code>shr</code> is arithmetic, <code>shru</code> logical/unsigned)</td></tr>
 <tr><td><code>cmp</code></td><td><code>rD, rA, rB</code></td><td>rD = −1 / 0 / +1 as rA &lt; / = / &gt; rB</td></tr>
 <tr><td><code>ldv</code></td><td><code>rD, rA</code></td><td>rD = input[rA] (byte)</td></tr>
 <tr><td><code>lds</code></td><td><code>rD, 0|1</code></td><td>rD = slice lo (0) or hi (1) — the "where am I" syscall</td></tr>

@@ -163,6 +163,23 @@ def language_cases():
     add("arr-two-slots",
         "var a[64]\nvar b[64]\nvar i = 5\na[i] = 1\nb[i] = 2\nemit a[i]\nemit b[i]\n",
         b"", 0, 0, [1, 2], "two arrays in different slots stay independent")
+    add("shru-negative",
+        "var x = 0 - 16\nemit (x >>> 28) & 15\nemit (x >> 28) & 15\n",
+        b"", 0, 0, [15, 15],
+        ">>> zeroes high bits (0xFFFFFFF0>>>28&15); >> sign-extends to -1&15")
+    add("const-clobber-mask",
+        # the 0xEDB88320 build-up pattern that miscompiled in the bench work:
+        # a constant mask cached in r15 got rebuilt by the shift's own
+        # constant load between the LODI and the AND.
+        "var v = 33568 + 60856 * (65535 + 1)\n"
+        "emit (v >>> 24) & 255\nemit (v >>> 16) & 255\n"
+        "emit (v >>> 8) & 255\nemit v & 255\n",
+        b"", 0, 0, [0xED, 0xB8, 0x83, 0x20],
+        "(v >>> s) & m keeps its mask through the shift's const load")
+    add("const-both-sides",
+        "emit 20 / 4\nemit 3 * 7\n",
+        b"", 0, 0, [5, 21],
+        "two-constant arith never reads r15 against itself")
     return cases
 
 
